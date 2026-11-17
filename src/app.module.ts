@@ -14,6 +14,11 @@ import { RolesGuard } from './common/guards/roles.guard.js';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter.js';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor.js';
 
+// Modules Métiers
+import { AuthModule } from './modules/auth/auth.module.js';
+import { UsersModule } from './modules/users/users.module.js';
+import { MentorsModule } from './modules/mentors/mentors.module.js';
+
 @Module({
   imports: [
     // Configuration d'environnement globale
@@ -39,6 +44,11 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor.js
     // Socle base de données Prisma et intégration Supabase
     PrismaModule,
     SupabaseModule,
+
+    // Modules Fonctionnels (F01, F02, F03, F06)
+    AuthModule,
+    UsersModule,
+    MentorsModule,
   ],
   controllers: [AppController],
   providers: [
