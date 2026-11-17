@@ -1,13 +1,582 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
+// Schema Prisma pour la Plateforme de Mentoring
+// S'appuie sur PostgreSQL (Supabase)
 
 generator client {
   provider = "prisma-client"
-  output   = "../generated/prisma"
+  output   = "../src/generated/prisma"
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+// ==========================================
+// ENUMS
+// ==========================================
+
+enum UserRole {
+  BENEFICIAIRE
+  MENTOR
+  EXPERT
+  PARTENAIRE
+  ADMIN
+}
+
+enum AccountStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  REJECTED
+}
+
+enum MentorshipType {
+  INDIVIDUEL
+  COLLECTIF
+  LES_DEUX
+}
+
+enum RequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  CANCELLED
+  COMPLETED
+}
+
+enum ProgramStatus {
+  ACTIVE
+  COMPLETED
+  PAUSED
+  CANCELLED
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum SessionStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  RESCHEDULED
+}
+
+enum ResourceType {
+  DOCUMENT
+  LINK
+  VIDEO
+}
+
+enum MasterclassStatus {
+  UPCOMING
+  LIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum OpportunityCategory {
+  EMPLOI
+  STAGE
+  FORMATION
+  CONCOURS
+  BOURSE
+  FINANCEMENT
+  APPEL_PROJETS
+  EVENEMENT
+}
+
+enum OpportunityStatus {
+  ACTIVE
+  EXPIRED
+  ARCHIVED
+}
+
+enum NotificationType {
+  DEMANDE
+  ACCEPTATION
+  RENDEZ_VOUS
+  MESSAGE
+  OPPORTUNITE
+  MASTERCLASS
+  ECHEANCE
+  SYSTEM
+}
+
+enum ReportStatus {
+  PENDING
+  REVIEWED
+  RESOLVED
+  DISMISSED
+}
+
+// ==========================================
+// UTILISATEURS & PROFILS (F01, F02, F03)
+// ==========================================
+
+model User {
+  id           String        @id @default(uuid())
+  supabaseUid  String        @unique
+  email        String        @unique
+  telephone    String?
+  nom          String
+  prenom       String
+  pays         String
+  role         UserRole      @default(BENEFICIAIRE)
+  statutCompte AccountStatus @default(PENDING)
+  langue       String        @default("fr")
+  consentCgu   Boolean       @default(false)
+  consentData  Boolean       @default(false)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  // Relations
+  profile                    UserProfile?
+  mentorProfile              MentorProfile?
+  diagnostic                 Diagnostic?
+  matchingResults            MatchingResult[]
+  mentorshipRequestsSent     MentorshipRequest[]       @relation("MenteeRequests")
+  mentorshipRequestsReceived MentorshipRequest[]       @relation("MentorRequests")
+  programsAsMentee           MentorshipProgram[]       @relation("MenteePrograms")
+  programsAsMentor           MentorshipProgram[]       @relation("MentorPrograms")
+  availabilitySlots          AvailabilitySlot[]
+  sessionsAsMentee           MentorshipSession[]       @relation("MenteeSessions")
+  sessionsAsMentor           MentorshipSession[]       @relation("MentorSessions")
+  conversations1             Conversation[]            @relation("Conversations1")
+  conversations2             Conversation[]            @relation("Conversations2")
+  messagesSent               Message[]
+  masterclassRegistrations   MasterclassRegistration[]
+  favoriteOpportunities      OpportunityFavorite[]
+  notifications              Notification[]
+  reportsMade                Report[]                  @relation("ReporterReports")
+  reportsReceived            Report[]                  @relation("ReportedUserReports")
+
+  @@index([role, statutCompte])
+  @@index([email])
+}
+
+model UserProfile {
+  id               String   @id @default(uuid())
+  userId           String   @unique
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  photoUrl         String?
+  ville            String?
+  localisation     String?
+  niveauEtude      String?
+  secteurActivite  String?
+  anneesExperience Int      @default(0)
+  competences      String[]
+  centresInteret   String[]
+  objectifs        String[]
+  langues          String[]
+  disponibilite    String?
+  isPublic         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([secteurActivite])
+}
+
+model MentorProfile {
+  id                 String         @id @default(uuid())
+  userId             String         @unique
+  user               User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fonction           String
+  organisation       String
+  anneesExperience   Int
+  expertises         String[]
+  secteurs           String[]
+  langues            String[]
+  publicsAccompagnes String[]
+  typesMentoring     MentorshipType @default(INDIVIDUEL)
+  disponibilites     String?
+  biographie         String
+  photoUrl           String?
+  cvUrl              String?
+  references         String?
+  statutValidation   AccountStatus  @default(PENDING)
+  isAvailable        Boolean        @default(true)
+  verifiedAt         DateTime?
+  verifiedBy         String?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  // Relations
+  matchingResults MatchingResult[]
+
+  @@index([statutValidation, isAvailable])
+}
+
+// ==========================================
+// DIAGNOSTIC ET MATCHING (F04, F05)
+// ==========================================
+
+model Diagnostic {
+  id                  String   @id @default(uuid())
+  userId              String   @unique
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  situation           String
+  objectifPrincipal   String
+  domaine             String
+  niveau              String
+  typeAccompagnement  String
+  competences         String[]
+  besoins             String[]
+  secteur             String
+  contraintes         String[]
+  disponibilite       String
+  preferenceMentoring String
+  profilBesoin        Json?
+  isCompleted         Boolean  @default(false)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model MatchingResult {
+  id            String        @id @default(uuid())
+  menteeId      String
+  mentee        User          @relation(fields: [menteeId], references: [id], onDelete: Cascade)
+  mentorId      String
+  mentor        MentorProfile @relation(fields: [mentorId], references: [id], onDelete: Cascade)
+  scoreTotal    Float
+  detailsScores Json
+  justification String
+  createdAt     DateTime      @default(now())
+
+  @@unique([menteeId, mentorId])
+  @@index([menteeId, scoreTotal])
+  @@index([mentorId])
+}
+
+model MatchingWeightConfig {
+  id                 String   @id @default(uuid())
+  expertiseWeight    Float    @default(0.30)
+  objectiveWeight    Float    @default(0.25)
+  sectorWeight       Float    @default(0.15)
+  availabilityWeight Float    @default(0.10)
+  languageWeight     Float    @default(0.10)
+  formatWeight       Float    @default(0.10)
+  updatedAt          DateTime @updatedAt
+  updatedBy          String?
+}
+
+// ==========================================
+// DEMANDES ET PARCOURS DE MENTORING (F07, F08)
+// ==========================================
+
+model MentorshipRequest {
+  id              String        @id @default(uuid())
+  mentorId        String
+  mentor          User          @relation("MentorRequests", fields: [mentorId], references: [id], onDelete: Cascade)
+  menteeId        String
+  mentee          User          @relation("MenteeRequests", fields: [menteeId], references: [id], onDelete: Cascade)
+  objectif        String
+  problematique   String
+  duree           String
+  frequence       String
+  format          String
+  message         String
+  status          RequestStatus @default(PENDING)
+  responseMessage String?
+  respondedAt     DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  // Relation 1-to-1 avec le programme initié si accepté
+  program MentorshipProgram?
+
+  @@index([mentorId, status])
+  @@index([menteeId, status])
+}
+
+model MentorshipProgram {
+  id          String             @id @default(uuid())
+  requestId   String?            @unique
+  request     MentorshipRequest? @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  mentorId    String
+  mentor      User               @relation("MentorPrograms", fields: [mentorId], references: [id], onDelete: Cascade)
+  menteeId    String
+  mentee      User               @relation("MenteePrograms", fields: [menteeId], references: [id], onDelete: Cascade)
+  titre       String
+  description String?
+  status      ProgramStatus      @default(ACTIVE)
+  progression Float              @default(0.0)
+  startDate   DateTime           @default(now())
+  endDate     DateTime?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  // Relations
+  goals     MentorshipGoal[]
+  tasks     MentorshipTask[]
+  resources MentorshipResource[]
+  sessions  MentorshipSession[]
+
+  @@index([mentorId, status])
+  @@index([menteeId, status])
+}
+
+model MentorshipGoal {
+  id          String            @id @default(uuid())
+  programId   String
+  program     MentorshipProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
+  titre       String
+  description String?
+  indicateurs String?
+  echeance    DateTime?
+  isCompleted Boolean           @default(false)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  tasks MentorshipTask[]
+
+  @@index([programId])
+}
+
+model MentorshipTask {
+  id          String            @id @default(uuid())
+  programId   String
+  program     MentorshipProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
+  goalId      String?
+  goal        MentorshipGoal?   @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  titre       String
+  description String?
+  echeance    DateTime?
+  status      TaskStatus        @default(PENDING)
+  completedAt DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([programId, status])
+  @@index([goalId])
+}
+
+model MentorshipResource {
+  id        String            @id @default(uuid())
+  programId String
+  program   MentorshipProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
+  titre     String
+  type      ResourceType      @default(DOCUMENT)
+  url       String
+  createdAt DateTime          @default(now())
+
+  @@index([programId])
+}
+
+// ==========================================
+// AGENDA ET RENDEZ-VOUS (F09)
+// ==========================================
+
+model AvailabilitySlot {
+  id           String    @id @default(uuid())
+  mentorId     String
+  mentor       User      @relation(fields: [mentorId], references: [id], onDelete: Cascade)
+  dayOfWeek    Int?
+  startTime    String
+  endTime      String
+  specificDate DateTime?
+  isRecurring  Boolean   @default(true)
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  sessions MentorshipSession[]
+
+  @@index([mentorId, isActive])
+}
+
+model MentorshipSession {
+  id             String             @id @default(uuid())
+  programId      String?
+  program        MentorshipProgram? @relation(fields: [programId], references: [id], onDelete: SetNull)
+  slotId         String?
+  slot           AvailabilitySlot?  @relation(fields: [slotId], references: [id], onDelete: SetNull)
+  mentorId       String
+  mentor         User               @relation("MentorSessions", fields: [mentorId], references: [id], onDelete: Cascade)
+  menteeId       String
+  mentee         User               @relation("MenteeSessions", fields: [menteeId], references: [id], onDelete: Cascade)
+  titre          String
+  dateDebut      DateTime
+  dateFin        DateTime
+  meetingUrl     String?
+  status         SessionStatus      @default(SCHEDULED)
+  notes          String?
+  feedbackMentor String?
+  feedbackMentee String?
+  rating         Int?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@index([mentorId, dateDebut])
+  @@index([menteeId, dateDebut])
+  @@index([status])
+}
+
+// ==========================================
+// MESSAGERIE INTERNE (F10)
+// ==========================================
+
+model Conversation {
+  id             String   @id @default(uuid())
+  participant1Id String
+  participant1   User     @relation("Conversations1", fields: [participant1Id], references: [id], onDelete: Cascade)
+  participant2Id String
+  participant2   User     @relation("Conversations2", fields: [participant2Id], references: [id], onDelete: Cascade)
+  lastMessageAt  DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  messages Message[]
+
+  @@unique([participant1Id, participant2Id])
+  @@index([participant1Id, lastMessageAt])
+  @@index([participant2Id, lastMessageAt])
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  content        String
+  isRead         Boolean      @default(false)
+  readAt         DateTime?
+  createdAt      DateTime     @default(now())
+
+  attachments MessageAttachment[]
+
+  @@index([conversationId, createdAt])
+  @@index([senderId])
+}
+
+model MessageAttachment {
+  id        String   @id @default(uuid())
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  fileName  String
+  fileUrl   String
+  fileSize  Int
+  mimeType  String
+  createdAt DateTime @default(now())
+
+  @@index([messageId])
+}
+
+// ==========================================
+// MASTERCLASSES (F11)
+// ==========================================
+
+model Masterclass {
+  id              String            @id @default(uuid())
+  titre           String
+  intervenant     String
+  description     String
+  categorie       String
+  dateSession     DateTime
+  duree           Int
+  lienLive        String?
+  lienReplay      String?
+  statut          MasterclassStatus @default(UPCOMING)
+  maxParticipants Int?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  registrations MasterclassRegistration[]
+
+  @@index([dateSession, statut])
+  @@index([categorie])
+}
+
+model MasterclassRegistration {
+  id            String      @id @default(uuid())
+  masterclassId String
+  masterclass   Masterclass @relation(fields: [masterclassId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attended      Boolean     @default(false)
+  registeredAt  DateTime    @default(now())
+
+  @@unique([masterclassId, userId])
+  @@index([userId])
+}
+
+// ==========================================
+// OPPORTUNITY HUB (F12)
+// ==========================================
+
+model Opportunity {
+  id              String              @id @default(uuid())
+  titre           String
+  organisation    String
+  categorie       OpportunityCategory
+  description     String
+  localisation    String?
+  typeContrat     String?
+  lienCandidature String
+  dateExpiration  DateTime
+  status          OpportunityStatus   @default(ACTIVE)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  favorites OpportunityFavorite[]
+
+  @@index([status, dateExpiration])
+  @@index([categorie])
+}
+
+model OpportunityFavorite {
+  id            String      @id @default(uuid())
+  opportunityId String
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt     DateTime    @default(now())
+
+  @@unique([opportunityId, userId])
+  @@index([userId])
+}
+
+// ==========================================
+// NOTIFICATIONS (F15)
+// ==========================================
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  titre     String
+  message   String
+  data      Json?
+  isRead    Boolean          @default(false)
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([userId, isRead, createdAt])
+}
+
+// ==========================================
+// ADMINISTRATION ET SIGNALEMENTS (F16)
+// ==========================================
+
+model Report {
+  id             String       @id @default(uuid())
+  reporterId     String
+  reporter       User         @relation("ReporterReports", fields: [reporterId], references: [id], onDelete: Cascade)
+  reportedUserId String?
+  reportedUser   User?        @relation("ReportedUserReports", fields: [reportedUserId], references: [id], onDelete: SetNull)
+  targetType     String
+  targetId       String
+  motif          String
+  status         ReportStatus @default(PENDING)
+  adminNotes     String?
+  resolvedAt     DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([status])
+  @@index([reporterId])
+  @@index([reportedUserId])
 }
