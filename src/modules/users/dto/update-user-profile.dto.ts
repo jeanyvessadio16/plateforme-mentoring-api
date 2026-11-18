@@ -2,11 +2,14 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsArray,
   IsBoolean,
+  IsEnum,
   IsInt,
   IsOptional,
   IsString,
+  Max,
   Min,
 } from 'class-validator';
+import { MilieuResidence, Sexe } from '../../../generated/prisma/client.js';
 
 export class UpdateUserProfileDto {
   @ApiPropertyOptional({ description: 'Nom de famille' })
@@ -18,6 +21,47 @@ export class UpdateUserProfileDto {
   @IsString()
   @IsOptional()
   prenom?: string;
+
+  @ApiPropertyOptional({ description: 'Âge de l’utilisateur', example: 25 })
+  @IsInt()
+  @Min(14)
+  @Max(120)
+  @IsOptional()
+  age?: number;
+
+  @ApiPropertyOptional({
+    enum: Sexe,
+    description: 'Sexe (FEMME ou HOMME)',
+    example: Sexe.FEMME,
+  })
+  @IsEnum(Sexe)
+  @IsOptional()
+  sexe?: Sexe;
+
+  @ApiPropertyOptional({
+    enum: MilieuResidence,
+    description: 'Milieu de résidence (RURAL ou URBAIN)',
+    example: MilieuResidence.URBAIN,
+  })
+  @IsEnum(MilieuResidence)
+  @IsOptional()
+  milieuResidence?: MilieuResidence;
+
+  @ApiPropertyOptional({
+    description: 'Situation de Handicap (SDH : Oui = true, Non = false)',
+    example: false,
+  })
+  @IsBoolean()
+  @IsOptional()
+  situationHandicap?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Alias pour situationHandicap (SDH)',
+    example: false,
+  })
+  @IsBoolean()
+  @IsOptional()
+  sdh?: boolean;
 
   @ApiPropertyOptional({ description: 'Numéro de téléphone' })
   @IsString()

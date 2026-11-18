@@ -46,6 +46,14 @@ export class UsersService {
     const userUpdateData: any = {};
     if (dto.nom !== undefined) userUpdateData.nom = dto.nom;
     if (dto.prenom !== undefined) userUpdateData.prenom = dto.prenom;
+    if (dto.age !== undefined) userUpdateData.age = dto.age;
+    if (dto.sexe !== undefined) userUpdateData.sexe = dto.sexe;
+    if (dto.milieuResidence !== undefined) userUpdateData.milieuResidence = dto.milieuResidence;
+    if (dto.situationHandicap !== undefined) {
+      userUpdateData.situationHandicap = dto.situationHandicap;
+    } else if (dto.sdh !== undefined) {
+      userUpdateData.situationHandicap = dto.sdh;
+    }
     if (dto.telephone !== undefined) userUpdateData.telephone = dto.telephone;
     if (dto.pays !== undefined) userUpdateData.pays = dto.pays;
 

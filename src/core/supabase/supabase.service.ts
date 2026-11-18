@@ -6,19 +6,28 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 export class SupabaseService {
   private readonly logger = new Logger(SupabaseService.name);
   private client: SupabaseClient;
+  private adminClient: SupabaseClient;
 
   constructor(private readonly configService: ConfigService) {
     const url = this.configService.get<string>('SUPABASE_URL') || '';
-    const secretKey =
-      this.configService.get<string>('SUPABASE_SECRET_KEY') ||
-      this.configService.get<string>('SUPABASE_PUBLISHABLE_KEY') ||
-      '';
+    const secretKey = this.configService.get<string>('SUPABASE_SECRET_KEY') || '';
+    const publishableKey =
+      this.configService.get<string>('SUPABASE_PUBLISHABLE_KEY') || secretKey;
 
     if (!url || !secretKey) {
-      this.logger.warn('Supabase URL or Key is missing in environment variables.');
+      this.logger.warn('Supabase URL ou clés manquantes dans les variables d’environnement.');
     }
 
-    this.client = createClient(url, secretKey, {
+    // Client public pour les opérations d'authentification utilisateur standard
+    this.client = createClient(url, publishableKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    });
+
+    // Client admin (service_role) pour la gestion avancée des utilisateurs et du stockage
+    this.adminClient = createClient(url, secretKey, {
       auth: {
         persistSession: false,
         autoRefreshToken: false,
@@ -26,8 +35,18 @@ export class SupabaseService {
     });
   }
 
+  /**
+   * Retourne le client Supabase standard (avec clé publique)
+   */
   getClient(): SupabaseClient {
     return this.client;
+  }
+
+  /**
+   * Retourne le client Supabase administrateur (avec clé secrète service_role)
+   */
+  getAdminClient(): SupabaseClient {
+    return this.adminClient;
   }
 
   /**
@@ -39,7 +58,7 @@ export class SupabaseService {
     fileBuffer: Buffer,
     contentType: string,
   ): Promise<string> {
-    const { error } = await this.client.storage
+    const { error } = await this.adminClient.storage
       .from(bucket)
       .upload(path, fileBuffer, {
         contentType,
@@ -51,7 +70,7 @@ export class SupabaseService {
       throw error;
     }
 
-    const { data } = this.client.storage.from(bucket).getPublicUrl(path);
+    const { data } = this.adminClient.storage.from(bucket).getPublicUrl(path);
     return data.publicUrl;
   }
 
@@ -59,7 +78,7 @@ export class SupabaseService {
    * Supprimer un fichier d'un bucket
    */
   async deleteFile(bucket: string, paths: string[]): Promise<void> {
-    const { error } = await this.client.storage.from(bucket).remove(paths);
+    const { error } = await this.adminClient.storage.from(bucket).remove(paths);
     if (error) {
       this.logger.error(`Erreur de suppression dans Supabase Storage: ${error.message}`);
       throw error;

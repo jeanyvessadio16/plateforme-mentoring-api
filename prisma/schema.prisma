@@ -14,6 +14,16 @@ datasource db {
 // ENUMS
 // ==========================================
 
+enum Sexe {
+  HOMME
+  FEMME
+}
+
+enum MilieuResidence {
+  RURAL
+  URBAIN
+}
+
 enum UserRole {
   BENEFICIAIRE
   MENTOR
@@ -116,20 +126,24 @@ enum ReportStatus {
 // ==========================================
 
 model User {
-  id           String        @id @default(uuid())
-  supabaseUid  String        @unique
-  email        String        @unique
-  telephone    String?
-  nom          String
-  prenom       String
-  pays         String
-  role         UserRole      @default(BENEFICIAIRE)
-  statutCompte AccountStatus @default(PENDING)
-  langue       String        @default("fr")
-  consentCgu   Boolean       @default(false)
-  consentData  Boolean       @default(false)
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  id                String           @id @default(uuid())
+  supabaseUid       String           @unique
+  email             String           @unique
+  telephone         String?
+  nom               String
+  prenom            String
+  age               Int?
+  sexe              Sexe?
+  milieuResidence   MilieuResidence?
+  situationHandicap Boolean          @default(false)
+  pays              String
+  role              UserRole         @default(BENEFICIAIRE)
+  statutCompte      AccountStatus    @default(PENDING)
+  langue            String           @default("fr")
+  consentCgu        Boolean          @default(false)
+  consentData       Boolean          @default(false)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
 
   // Relations
   profile                    UserProfile?
@@ -154,6 +168,7 @@ model User {
 
   @@index([role, statutCompte])
   @@index([email])
+  @@index([sexe, milieuResidence, situationHandicap])
 }
 
 model UserProfile {
