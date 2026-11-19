@@ -18,4 +18,11 @@ export class AppController {
       timestamp: new Date().toISOString(),
     };
   }
+
+  @Public()
+  @Get('health')
+  @ApiOperation({ summary: 'Healthcheck public sous le préfixe /api/v1/health' })
+  getHealth(): { status: string; message: string; timestamp: string } {
+    return this.getHello();
+  }
 }

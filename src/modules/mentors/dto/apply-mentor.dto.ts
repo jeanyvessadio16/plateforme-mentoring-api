@@ -6,6 +6,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUrl,
   Min,
 } from 'class-validator';
 import { MentorshipType } from '../../../generated/prisma/client.js';
@@ -87,17 +88,26 @@ export class ApplyMentorDto {
   biographie: string;
 
   @ApiPropertyOptional({ description: 'URL de la photo de profil' })
-  @IsString()
+  @IsUrl(
+    { protocols: ['http', 'https'], require_protocol: true },
+    { message: 'URL invalide (http ou https requis).' },
+  )
   @IsOptional()
   photoUrl?: string;
 
   @ApiPropertyOptional({ description: 'URL du CV ou document justificatif' })
-  @IsString()
+  @IsUrl(
+    { protocols: ['http', 'https'], require_protocol: true },
+    { message: 'URL invalide (http ou https requis).' },
+  )
   @IsOptional()
   cvUrl?: string;
 
   @ApiPropertyOptional({ description: 'URL du profil LinkedIn' })
-  @IsString()
+  @IsUrl(
+    { protocols: ['http', 'https'], require_protocol: true },
+    { message: 'URL invalide (http ou https requis).' },
+  )
   @IsOptional()
   linkedinUrl?: string;
 

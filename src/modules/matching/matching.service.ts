@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service.js';
 import { AccountStatus } from '../../generated/prisma/client.js';
+import type { FilterRecommendationsDto } from './dto/filter-recommendations.dto.js';
 
 export interface MatchingDetailScores {
   expertiseScore: number;
@@ -188,9 +189,13 @@ export class MatchingService {
   }
 
   /**
-   * Récupère les recommandations existantes ou déclenche le calcul si nécessaire
+   * Récupère les recommandations existantes ou déclenche le calcul si nécessaire,
+   * avec prise en charge de filtres optionnels (F05)
    */
-  async getRecommendations(userId: string): Promise<RecommendationResult[]> {
+  async getRecommendations(
+    userId: string,
+    filter?: FilterRecommendationsDto,
+  ): Promise<RecommendationResult[]> {
     // Vérifier si des résultats existent déjà
     const savedResults = await this.prisma.matchingResult.findMany({
       where: { menteeId: userId },
@@ -209,29 +214,57 @@ export class MatchingService {
       take: 15,
     });
 
-    if (savedResults.length > 0) {
-      return savedResults.map((r) => ({
-        mentorId: r.mentor.userId,
-        mentorProfileId: r.mentor.id,
-        nom: r.mentor.user.nom,
-        prenom: r.mentor.user.prenom,
-        email: r.mentor.user.email,
-        photoUrl: r.mentor.photoUrl || r.mentor.user.profile?.photoUrl || null,
-        fonction: r.mentor.fonction,
-        organisation: r.mentor.organisation,
-        anneesExperience: r.mentor.anneesExperience,
-        expertises: r.mentor.expertises,
-        secteurs: r.mentor.secteurs,
-        langues: r.mentor.langues,
-        typesMentoring: r.mentor.typesMentoring,
-        scoreTotal: r.scoreTotal,
-        detailsScores: r.detailsScores as any,
-        justification: r.justification,
-      }));
+    const rawList: RecommendationResult[] =
+      savedResults.length > 0
+        ? savedResults.map((r) => ({
+            mentorId: r.mentor.userId,
+            mentorProfileId: r.mentor.id,
+            nom: r.mentor.user.nom,
+            prenom: r.mentor.user.prenom,
+            email: r.mentor.user.email,
+            photoUrl: r.mentor.photoUrl || r.mentor.user.profile?.photoUrl || null,
+            fonction: r.mentor.fonction,
+            organisation: r.mentor.organisation,
+            anneesExperience: r.mentor.anneesExperience,
+            expertises: r.mentor.expertises,
+            secteurs: r.mentor.secteurs,
+            langues: r.mentor.langues,
+            typesMentoring: r.mentor.typesMentoring,
+            scoreTotal: r.scoreTotal,
+            detailsScores: r.detailsScores as any,
+            justification: r.justification,
+          }))
+        : await this.computeMatchingForUser(userId);
+
+    if (!filter) {
+      return rawList;
     }
 
-    // Si aucun résultat stocké, calculer à la volée
-    return this.computeMatchingForUser(userId);
+    return rawList.filter((item) => {
+      if (filter.minScore !== undefined && item.scoreTotal < filter.minScore) {
+        return false;
+      }
+      if (filter.secteur) {
+        const needle = filter.secteur.toLowerCase();
+        if (!item.secteurs.some((s) => s.toLowerCase().includes(needle))) {
+          return false;
+        }
+      }
+      if (filter.langue) {
+        const targetLang = this.normalizeLanguage(filter.langue);
+        if (!item.langues.some((l) => this.normalizeLanguage(l) === targetLang)) {
+          return false;
+        }
+      }
+      if (
+        filter.typesMentoring &&
+        item.typesMentoring !== filter.typesMentoring &&
+        item.typesMentoring !== 'LES_DEUX'
+      ) {
+        return false;
+      }
+      return true;
+    });
   }
 
   /**
@@ -299,9 +332,11 @@ export class MatchingService {
     }
 
     // 5. Langues communes (10%)
-    const mentorLangues = (mentor.langues || []).map((l: string) => l.toLowerCase());
+    const mentorLangues = (mentor.langues || []).map((l: string) =>
+      this.normalizeLanguage(l),
+    );
     const commonLang = userLangues.some((l: string) =>
-      mentorLangues.includes(l.toLowerCase())
+      mentorLangues.includes(this.normalizeLanguage(l)),
     );
     const languageScore = commonLang ? 100 : 20;
 
@@ -349,5 +384,30 @@ export class MatchingService {
     }
 
     return reasons.join(' · ') + '.';
+  }
+
+  /**
+   * Normalise les codes et libellés de langues (ex: 'Français' -> 'fr', 'Anglais' -> 'en')
+   */
+  private normalizeLanguage(lang: string): string {
+    const normalized = lang.trim().toLowerCase();
+    const aliasMap: Record<string, string> = {
+      fr: 'fr',
+      français: 'fr',
+      francais: 'fr',
+      french: 'fr',
+      en: 'en',
+      anglais: 'en',
+      english: 'en',
+      wo: 'wo',
+      wolof: 'wo',
+      ar: 'ar',
+      arabe: 'ar',
+      arabic: 'ar',
+      pt: 'pt',
+      portugais: 'pt',
+      portuguese: 'pt',
+    };
+    return aliasMap[normalized] ?? normalized;
   }
 }

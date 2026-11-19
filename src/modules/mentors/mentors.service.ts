@@ -10,6 +10,36 @@ import { AccountStatus, UserRole } from '../../generated/prisma/client.js';
 
 @Injectable()
 export class MentorsService {
+  private readonly PUBLIC_MENTOR_SELECT = {
+    id: true,
+    userId: true,
+    fonction: true,
+    organisation: true,
+    anneesExperience: true,
+    expertises: true,
+    secteurs: true,
+    langues: true,
+    publicsAccompagnes: true,
+    typesMentoring: true,
+    disponibilites: true,
+    biographie: true,
+    photoUrl: true,
+    linkedinUrl: true,
+    statutValidation: true,
+    isAvailable: true,
+    verifiedAt: true,
+    createdAt: true,
+    updatedAt: true,
+    user: {
+      select: {
+        id: true,
+        nom: true,
+        prenom: true,
+        pays: true,
+      },
+    },
+  };
+
   constructor(private readonly prisma: PrismaService) {}
 
   /**
@@ -189,22 +219,21 @@ export class MentorsService {
       ];
     }
 
+    if (filter.minExperience !== undefined) {
+      where.anneesExperience = { gte: filter.minExperience };
+    }
+
+    if (filter.disponibilite) {
+      where.disponibilites = { contains: filter.disponibilite, mode: 'insensitive' };
+    }
+
     const [total, mentors] = await Promise.all([
       this.prisma.mentorProfile.count({ where }),
       this.prisma.mentorProfile.findMany({
         where,
         skip,
         take: limit,
-        include: {
-          user: {
-            select: {
-              id: true,
-              nom: true,
-              prenom: true,
-              pays: true,
-            },
-          },
-        },
+        select: this.PUBLIC_MENTOR_SELECT,
         orderBy: {
           anneesExperience: 'desc',
         },
@@ -223,22 +252,20 @@ export class MentorsService {
   }
 
   /**
-   * Consulter la fiche complète d'un mentor
+   * Consulter la fiche complète d'un mentor (sans données privées cvUrl / references)
    */
-  async getMentorById(mentorProfileId: string) {
-    const mentor = await this.prisma.mentorProfile.findUnique({
-      where: { id: mentorProfileId },
-      include: {
-        user: {
-          select: {
-            id: true,
-            nom: true,
-            prenom: true,
-            pays: true,
-          },
-        },
-      },
+  async getMentorById(mentorIdOrProfileId: string) {
+    let mentor = await this.prisma.mentorProfile.findUnique({
+      where: { id: mentorIdOrProfileId },
+      select: this.PUBLIC_MENTOR_SELECT,
     });
+
+    if (!mentor) {
+      mentor = await this.prisma.mentorProfile.findUnique({
+        where: { userId: mentorIdOrProfileId },
+        select: this.PUBLIC_MENTOR_SELECT,
+      });
+    }
 
     if (!mentor) {
       throw new NotFoundException('Fiche mentor introuvable.');

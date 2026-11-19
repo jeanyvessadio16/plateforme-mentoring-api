@@ -46,6 +46,18 @@ export class FilterMentorsDto {
   @IsOptional()
   search?: string;
 
+  @ApiPropertyOptional({ description: 'Années d’expérience minimales' })
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  minExperience?: number;
+
+  @ApiPropertyOptional({ description: 'Filtrer par disponibilité (ex: soir, weekend, flexible)' })
+  @IsString()
+  @IsOptional()
+  disponibilite?: string;
+
   @ApiPropertyOptional({ description: 'Numéro de page', default: 1 })
   @Type(() => Number)
   @IsInt()

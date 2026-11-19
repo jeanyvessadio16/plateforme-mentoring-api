@@ -58,6 +58,7 @@ async function bootstrap() {
     .addTag('Santé & Système', 'Endpoints de vérification de l’état de l’API')
     .addTag('Authentification', 'F01 - Inscription, synchronisation et sessions')
     .addTag('Utilisateurs & Profils', 'F02 & F03 - Profils bénéficiaires et mentors')
+    .addTag('Mentors', 'F03 & F06 - Candidatures, disponibilités et catalogue des mentors')
     .addTag('Diagnostic', 'F04 - Questionnaire de diagnostic des compétences et besoins')
     .addTag('Matching', 'F05 & F06 - Moteur de recommandation multicritère et recherche')
     .addTag('Mentoring', 'F07 & F08 - Demandes d’accompagnement et parcours de mentoring')

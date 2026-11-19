@@ -5,7 +5,7 @@ import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { AuthService } from './auth.service.js';
 import { PrismaService } from '../../core/database/prisma.service.js';
 import { SupabaseService } from '../../core/supabase/supabase.service.js';
-import { UserRole } from '../../generated/prisma/client.js';
+import { AccountStatus, UserRole } from '../../generated/prisma/client.js';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -16,12 +16,14 @@ describe('AuthService', () => {
   const mockAdminUpdateUser = vi.fn();
   const mockSignUp = vi.fn();
   const mockSignInWithPassword = vi.fn();
+  const mockVerifyOtp = vi.fn();
 
   const mockPrisma = {
     user: {
       findFirst: vi.fn(),
       findUnique: vi.fn(),
       create: vi.fn(),
+      update: vi.fn(),
     },
   };
 
@@ -32,7 +34,7 @@ describe('AuthService', () => {
         refreshSession: vi.fn(),
         signOut: vi.fn(),
         resetPasswordForEmail: vi.fn(),
-        verifyOtp: vi.fn(),
+        verifyOtp: mockVerifyOtp,
         signUp: mockSignUp,
       },
     }),
@@ -170,5 +172,64 @@ describe('AuthService', () => {
     const result = await service.logout('jwt-token-123');
     expect(mockAdminSignOut).toHaveBeenCalledWith('jwt-token-123');
     expect(result.message).toContain('Déconnexion');
+  });
+
+  it('should activate PENDING BENEFICIAIRE on verifyOtp while keeping PENDING MENTOR unactivated', async () => {
+    mockVerifyOtp.mockResolvedValue({
+      data: {
+        user: { id: 'sub-ben' },
+        session: {
+          access_token: 'acc',
+          refresh_token: 'ref',
+          expires_in: 3600,
+          expires_at: 999999,
+          token_type: 'bearer',
+        },
+      },
+      error: null,
+    });
+    mockPrisma.user.findFirst.mockResolvedValue({
+      id: 'u-ben',
+      role: UserRole.BENEFICIAIRE,
+      statutCompte: AccountStatus.PENDING,
+      diagnostic: null,
+    });
+    mockPrisma.user.update.mockResolvedValue({
+      id: 'u-ben',
+      role: UserRole.BENEFICIAIRE,
+      statutCompte: AccountStatus.ACTIVE,
+      diagnostic: null,
+    });
+
+    const resBen = await service.verifyOtp({
+      email: 'ben@example.com',
+      token: '123456',
+    });
+    expect(mockPrisma.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'u-ben' },
+        data: { statutCompte: AccountStatus.ACTIVE },
+      }),
+    );
+    expect(resBen.user?.statutCompte).toBe(AccountStatus.ACTIVE);
+
+    vi.clearAllMocks();
+    mockVerifyOtp.mockResolvedValue({
+      data: { user: { id: 'sub-men' }, session: null },
+      error: null,
+    });
+    mockPrisma.user.findFirst.mockResolvedValue({
+      id: 'u-men',
+      role: UserRole.MENTOR,
+      statutCompte: AccountStatus.PENDING,
+      mentorProfile: null,
+    });
+
+    const resMen = await service.verifyOtp({
+      email: 'men@example.com',
+      token: '123456',
+    });
+    expect(mockPrisma.user.update).not.toHaveBeenCalled();
+    expect(resMen.user?.statutCompte).toBe(AccountStatus.PENDING);
   });
 });

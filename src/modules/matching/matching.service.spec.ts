@@ -140,4 +140,26 @@ describe('MatchingService', () => {
     expect(results).toHaveLength(1);
     expect(results[0].scoreTotal).toBe(60);
   });
+
+  it("matches 'fr' user language with 'Français' mentor language at 100%", async () => {
+    mockPrisma.diagnostic.findUnique.mockResolvedValue({
+      ...sampleDiagnostic,
+      user: {
+        langue: 'fr',
+        profile: { langues: [] },
+      },
+    });
+    mockPrisma.mentorProfile.findMany.mockResolvedValue([
+      {
+        ...mentorsFixture[1],
+        langues: ['Français', 'Anglais'],
+      },
+    ]);
+    mockPrisma.matchingWeightConfig.findFirst.mockResolvedValue(null);
+
+    const results = await service.computeMatchingForUser('mentee-1');
+
+    expect(results).toHaveLength(1);
+    expect(results[0].detailsScores.languageScore).toBe(100);
+  });
 });

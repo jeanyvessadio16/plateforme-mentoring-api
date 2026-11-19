@@ -4,6 +4,7 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  Query,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -13,6 +14,7 @@ import {
 } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
 import { MatchingService } from './matching.service.js';
+import { FilterRecommendationsDto } from './dto/filter-recommendations.dto.js';
 
 @ApiTags('Matching')
 @ApiBearerAuth('JWT-auth')
@@ -22,14 +24,17 @@ export class MatchingController {
 
   @Get('recommendations')
   @ApiOperation({
-    summary: 'F05 - Obtenir les recommandations de mentors avec scores détaillés',
+    summary: 'F05 - Obtenir les recommandations de mentors avec scores détaillés et filtres',
   })
   @ApiResponse({
     status: 200,
     description: 'Recommandations calculées pour le bénéficiaire connecté.',
   })
-  async getRecommendations(@CurrentUser('id') userId: string) {
-    return this.matchingService.getRecommendations(userId);
+  async getRecommendations(
+    @CurrentUser('id') userId: string,
+    @Query() filter: FilterRecommendationsDto,
+  ) {
+    return this.matchingService.getRecommendations(userId, filter);
   }
 
   @Post('recalculate')

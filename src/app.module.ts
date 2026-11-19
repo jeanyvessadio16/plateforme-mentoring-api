@@ -20,6 +20,14 @@ import { UsersModule } from './modules/users/users.module.js';
 import { MentorsModule } from './modules/mentors/mentors.module.js';
 import { DiagnosticModule } from './modules/diagnostic/diagnostic.module.js';
 import { MatchingModule } from './modules/matching/matching.module.js';
+import { NotificationsModule } from './modules/notifications/notifications.module.js';
+import { MentoringModule } from './modules/mentoring/mentoring.module.js';
+import { SessionsModule } from './modules/sessions/sessions.module.js';
+import { MessagingModule } from './modules/messaging/messaging.module.js';
+import { MasterclassesModule } from './modules/masterclasses/masterclasses.module.js';
+import { OpportunitiesModule } from './modules/opportunities/opportunities.module.js';
+import { DashboardsModule } from './modules/dashboards/dashboards.module.js';
+import { AdminModule } from './modules/admin/admin.module.js';
 
 @Module({
   imports: [
@@ -47,12 +55,20 @@ import { MatchingModule } from './modules/matching/matching.module.js';
     PrismaModule,
     SupabaseModule,
 
-    // Modules Fonctionnels (F01, F02, F03, F04, F05, F06)
+    // Modules Fonctionnels (F01 à F17)
     AuthModule,
     UsersModule,
     MentorsModule,
     DiagnosticModule,
     MatchingModule,
+    NotificationsModule,
+    MentoringModule,
+    SessionsModule,
+    MessagingModule,
+    MasterclassesModule,
+    OpportunitiesModule,
+    DashboardsModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [

@@ -444,8 +444,8 @@ export class AuthService {
       throw new BadRequestException(error?.message || 'Code OTP invalide ou expiré.');
     }
 
-    // Activer l'utilisateur s'il était en attente
-    const user = await this.prisma.user.findFirst({
+    // Activer l'utilisateur bénéficiaire s'il était en attente (mentors/experts/partenaires restent PENDING pour validation admin)
+    let user = await this.prisma.user.findFirst({
       where: {
         OR: [{ supabaseUid: data.user.id }, { email: dto.email }],
       },
@@ -455,6 +455,22 @@ export class AuthService {
         diagnostic: true,
       },
     });
+
+    if (
+      user &&
+      user.role === UserRole.BENEFICIAIRE &&
+      user.statutCompte === AccountStatus.PENDING
+    ) {
+      user = await this.prisma.user.update({
+        where: { id: user.id },
+        data: { statutCompte: AccountStatus.ACTIVE },
+        include: {
+          profile: true,
+          mentorProfile: true,
+          diagnostic: true,
+        },
+      });
+    }
 
     return {
       message: 'Vérification réussie.',

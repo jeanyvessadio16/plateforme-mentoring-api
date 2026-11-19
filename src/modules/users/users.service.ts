@@ -162,4 +162,45 @@ export class UsersService {
 
     return { message: 'Compte supprimé avec succès conformément aux règles de protection des données.' };
   }
+
+  /**
+   * Export complet des données personnelles de l'utilisateur connecté (RGPD)
+   */
+  async exportMyData(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        profile: true,
+        mentorProfile: true,
+        diagnostic: true,
+        matchingResults: true,
+        mentorshipRequestsSent: true,
+        mentorshipRequestsReceived: true,
+        programsAsMentee: {
+          include: { goals: true, tasks: true, resources: true },
+        },
+        programsAsMentor: {
+          include: { goals: true, tasks: true, resources: true },
+        },
+        sessionsAsMentee: true,
+        sessionsAsMentor: true,
+        masterclassRegistrations: {
+          include: { masterclass: true },
+        },
+        favoriteOpportunities: {
+          include: { opportunity: true },
+        },
+        notifications: true,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Utilisateur introuvable.');
+    }
+
+    return {
+      exportedAt: new Date().toISOString(),
+      user,
+    };
+  }
 }

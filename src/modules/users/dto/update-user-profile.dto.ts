@@ -6,6 +6,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUrl,
   Max,
   Min,
 } from 'class-validator';
@@ -74,7 +75,10 @@ export class UpdateUserProfileDto {
   pays?: string;
 
   @ApiPropertyOptional({ description: 'URL de la photo de profil' })
-  @IsString()
+  @IsUrl(
+    { protocols: ['http', 'https'], require_protocol: true },
+    { message: 'URL de photo invalide (http ou https requis).' },
+  )
   @IsOptional()
   photoUrl?: string;
 

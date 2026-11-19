@@ -75,6 +75,32 @@ export class SupabaseService {
   }
 
   /**
+   * Génère une URL signée temporaire pour un fichier stocké dans un bucket privé
+   */
+  async createSignedUrl(
+    bucket: string,
+    path: string,
+    expiresInSeconds = 3600,
+  ): Promise<string | null> {
+    if (!path) {
+      return null;
+    }
+
+    const { data, error } = await this.adminClient.storage
+      .from(bucket)
+      .createSignedUrl(path, expiresInSeconds);
+
+    if (error || !data?.signedUrl) {
+      this.logger.warn(
+        `Impossible de signer le document (${bucket}/${path}): ${error?.message || 'URL vide'}`,
+      );
+      return null;
+    }
+
+    return data.signedUrl;
+  }
+
+  /**
    * Supprimer un fichier d'un bucket
    */
   async deleteFile(bucket: string, paths: string[]): Promise<void> {

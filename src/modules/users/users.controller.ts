@@ -40,6 +40,13 @@ export class UsersController {
     return this.usersService.updateProfile(userId, dto);
   }
 
+  @Get('me/export')
+  @ApiOperation({ summary: 'Exporter toutes mes données personnelles (RGPD)' })
+  @ApiResponse({ status: 200, description: 'Export JSON complet des données utilisateur.' })
+  async exportMyData(@CurrentUser('id') userId: string) {
+    return this.usersService.exportMyData(userId);
+  }
+
   @Public()
   @Get(':id/public')
   @ApiOperation({ summary: 'Consulter un profil public (si autorisé par l’utilisateur)' })
