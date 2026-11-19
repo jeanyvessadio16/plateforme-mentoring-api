@@ -50,7 +50,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
         this.logger.error(`Erreur non gérée: ${JSON.stringify(exception)}`);
       }
     } else {
-      this.logger.error(`Exception inattendue: ${exception}`);
+      const errText =
+        exception instanceof Error
+          ? exception.stack || exception.message
+          : String(exception);
+      this.logger.error(`Exception inattendue: ${errText}`);
     }
 
     response.status(status).json({

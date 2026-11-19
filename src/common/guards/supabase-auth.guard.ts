@@ -10,6 +10,7 @@ import { Reflector } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator.js';
+import { ALLOW_UNREGISTERED_KEY } from '../decorators/allow-unregistered.decorator.js';
 import { PrismaService } from '../../core/database/prisma.service.js';
 import { AccountStatus } from '../../generated/prisma/client.js';
 
@@ -28,7 +29,8 @@ export class SupabaseAuthGuard implements CanActivate {
       try {
         this.jwks = createRemoteJWKSet(new URL(jwksUrl));
       } catch (err) {
-        this.logger.error(`Impossible d'initialiser le JWKS Supabase: ${err}`);
+        const errMsg = err instanceof Error ? err.message : String(err);
+        this.logger.error(`Impossible d'initialiser le JWKS Supabase: ${errMsg}`);
       }
     }
   }
@@ -67,6 +69,8 @@ export class SupabaseAuthGuard implements CanActivate {
       throw new UnauthorizedException('Jeton d’authentification invalide ou expiré.');
     }
 
+    request.accessToken = token;
+
     const supabaseUid = payload.sub;
     if (!supabaseUid) {
       throw new UnauthorizedException('Identifiant utilisateur manquant dans le jeton.');
@@ -82,13 +86,24 @@ export class SupabaseAuthGuard implements CanActivate {
     });
 
     if (!user) {
-      // Pour les routes d'enregistrement/synchronisation initiale où l'utilisateur n'est pas encore en base,
-      // on peut quand même attacher l'identité Supabase minimale
+      const allowUnregistered = this.reflector.getAllAndOverride<boolean>(
+        ALLOW_UNREGISTERED_KEY,
+        [context.getHandler(), context.getClass()],
+      );
+
+      if (!allowUnregistered) {
+        throw new UnauthorizedException(
+          'Compte utilisateur local introuvable. Veuillez synchroniser votre profil via /auth/sync.',
+        );
+      }
+
+      // Routes explicitement autorisées sans profil local (ex: /auth/sync, /auth/logout)
       request.user = {
         supabaseUid,
         email: payload.email,
         isRegistered: false,
       };
+      request.authPayload = payload;
       return true;
     }
 

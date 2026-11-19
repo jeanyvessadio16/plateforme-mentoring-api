@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -43,6 +42,7 @@ export class MentorsService {
         biographie: dto.biographie,
         photoUrl: dto.photoUrl,
         cvUrl: dto.cvUrl,
+        linkedinUrl: dto.linkedinUrl,
         references: dto.references,
         statutValidation: AccountStatus.PENDING, // Toujours soumis à validation administrative
         isAvailable: true,
@@ -60,6 +60,7 @@ export class MentorsService {
         biographie: dto.biographie,
         photoUrl: dto.photoUrl,
         cvUrl: dto.cvUrl,
+        linkedinUrl: dto.linkedinUrl,
         references: dto.references,
       },
     });

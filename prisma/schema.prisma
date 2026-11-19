@@ -209,6 +209,7 @@ model MentorProfile {
   biographie         String
   photoUrl           String?
   cvUrl              String?
+  linkedinUrl        String?
   references         String?
   statutValidation   AccountStatus  @default(PENDING)
   isAvailable        Boolean        @default(true)

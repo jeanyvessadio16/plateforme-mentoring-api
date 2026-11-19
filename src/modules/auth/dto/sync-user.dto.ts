@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsBoolean,
   IsEnum,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -10,6 +11,13 @@ import {
   Min,
 } from 'class-validator';
 import { MilieuResidence, Sexe, UserRole } from '../../../generated/prisma/client.js';
+
+const PUBLIC_REGISTER_ROLES = [
+  UserRole.BENEFICIAIRE,
+  UserRole.MENTOR,
+  UserRole.EXPERT,
+  UserRole.PARTENAIRE,
+] as const;
 
 export class SyncUserDto {
   @ApiProperty({ description: 'Nom de famille de l’utilisateur', example: 'Diop' })
@@ -75,11 +83,13 @@ export class SyncUserDto {
   pays: string;
 
   @ApiProperty({
-    enum: UserRole,
+    enum: PUBLIC_REGISTER_ROLES,
     description: 'Type de compte / rôle souhaité',
     example: UserRole.BENEFICIAIRE,
   })
-  @IsEnum(UserRole)
+  @IsIn(PUBLIC_REGISTER_ROLES, {
+    message: 'Le rôle doit être BENEFICIAIRE, MENTOR, EXPERT ou PARTENAIRE.',
+  })
   role: UserRole;
 
   @ApiPropertyOptional({ description: 'Langue de préférence', default: 'fr', example: 'fr' })

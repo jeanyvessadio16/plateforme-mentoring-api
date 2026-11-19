@@ -5,6 +5,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Max,
   Min,
 } from 'class-validator';
 import { MentorshipType } from '../../../generated/prisma/client.js';
@@ -56,6 +57,7 @@ export class FilterMentorsDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  @Max(50)
   @IsOptional()
   limit?: number = 10;
 }

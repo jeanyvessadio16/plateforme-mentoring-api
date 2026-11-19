@@ -7,6 +7,7 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../core/database/prisma.service.js';
 import { SupabaseService } from '../../core/supabase/supabase.service.js';
 import { RegisterDto } from './dto/register.dto.js';
@@ -25,7 +26,8 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly supabaseService: SupabaseService,
-  ) {}
+    private readonly configService: ConfigService,
+  ) { }
 
   /**
    * Retourne l'URL de base du tableau de bord selon le rôle de l'utilisateur
@@ -81,6 +83,12 @@ export class AuthService {
    * F01 - Inscription d'un nouvel utilisateur (auth/register)
    */
   async register(dto: RegisterDto) {
+    if (dto.role === UserRole.ADMIN) {
+      throw new ForbiddenException(
+        'La création d’un compte administrateur n’est pas autorisée via cette route.',
+      );
+    }
+
     if (!dto.consentCgu || !dto.consentData) {
       throw new BadRequestException(
         'L’acceptation des CGU et le consentement au traitement des données sont obligatoires.',
@@ -99,7 +107,7 @@ export class AuthService {
     const publicClient = this.supabaseService.getClient();
 
     let supabaseUid: string;
-    let autoConfirmed = dto.autoConfirm !== false;
+    const autoConfirmed = this.configService.get<string>('AUTH_AUTO_CONFIRM') === 'true';
 
     if (autoConfirmed) {
       // Création directe de l'utilisateur avec e-mail pré-confirmé via la clé admin
@@ -159,35 +167,40 @@ export class AuthService {
           ? dto.sdh
           : false;
 
-    // Création transactionnelle dans la base de données locale
-    const user = await this.prisma.user.create({
-      data: {
-        supabaseUid,
-        email: dto.email,
-        nom: dto.nom,
-        prenom: dto.prenom,
-        age: dto.age,
-        sexe: dto.sexe,
-        milieuResidence: dto.milieuResidence,
-        situationHandicap,
-        telephone: dto.telephone,
-        pays: dto.pays,
-        role: dto.role,
-        statutCompte,
-        langue: dto.langue || 'fr',
-        consentCgu: dto.consentCgu,
-        consentData: dto.consentData,
-        profile: {
-          create: {
-            competences: [],
-            centresInteret: [],
-            objectifs: [],
-            langues: [dto.langue || 'fr'],
+    // Création transactionnelle dans la base de données locale (avec rollback Supabase Auth en cas d'échec)
+    let user: Awaited<ReturnType<typeof this.prisma.user.create>> & {
+      profile?: unknown;
+      mentorProfile?: unknown;
+    };
+    try {
+      user = await this.prisma.user.create({
+        data: {
+          supabaseUid,
+          email: dto.email,
+          nom: dto.nom,
+          prenom: dto.prenom,
+          age: dto.age,
+          sexe: dto.sexe,
+          milieuResidence: dto.milieuResidence,
+          situationHandicap,
+          telephone: dto.telephone,
+          pays: dto.pays,
+          role: dto.role,
+          statutCompte,
+          langue: dto.langue || 'fr',
+          consentCgu: dto.consentCgu,
+          consentData: dto.consentData,
+          profile: {
+            create: {
+              competences: [],
+              centresInteret: [],
+              objectifs: [],
+              langues: [dto.langue || 'fr'],
+            },
           },
-        },
-        // Si mentor, on initialise également son profil mentor en attente
-        ...(dto.role === UserRole.MENTOR
-          ? {
+          // Si mentor, on initialise également son profil mentor en attente
+          ...(dto.role === UserRole.MENTOR
+            ? {
               mentorProfile: {
                 create: {
                   fonction: 'En attente de renseignement',
@@ -203,13 +216,22 @@ export class AuthService {
                 },
               },
             }
-          : {}),
-      },
-      include: {
-        profile: true,
-        mentorProfile: true,
-      },
-    });
+            : {}),
+        },
+        include: {
+          profile: true,
+          mentorProfile: true,
+        },
+      });
+    } catch (error) {
+      try {
+        await adminClient.auth.admin.deleteUser(supabaseUid);
+      } catch (rollbackError) {
+        const errMsg = rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
+        this.logger.error(`Échec rollback Supabase Auth (${supabaseUid}): ${errMsg}`);
+      }
+      throw error;
+    }
 
     // Si le compte est confirmé, on connecte l'utilisateur pour lui renvoyer directement sa session
     if (autoConfirmed) {
@@ -225,12 +247,12 @@ export class AuthService {
         user,
         session: loginData?.session
           ? {
-              accessToken: loginData.session.access_token,
-              refreshToken: loginData.session.refresh_token,
-              expiresIn: loginData.session.expires_in,
-              expiresAt: loginData.session.expires_at,
-              tokenType: loginData.session.token_type,
-            }
+            accessToken: loginData.session.access_token,
+            refreshToken: loginData.session.refresh_token,
+            expiresIn: loginData.session.expires_in,
+            expiresAt: loginData.session.expires_at,
+            tokenType: loginData.session.token_type,
+          }
           : null,
       };
     }
@@ -346,9 +368,19 @@ export class AuthService {
   /**
    * F01 - Déconnexion (auth/logout)
    */
-  async logout() {
-    const publicClient = this.supabaseService.getClient();
-    await publicClient.auth.signOut();
+  async logout(accessToken?: string) {
+    if (accessToken) {
+      try {
+        const adminClient = this.supabaseService.getAdminClient();
+        const { error } = await adminClient.auth.admin.signOut(accessToken);
+        if (error) {
+          this.logger.warn(`Erreur lors de la révocation de session Supabase: ${error.message}`);
+        }
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`Exception lors de la déconnexion Supabase: ${errMsg}`);
+      }
+    }
     return { message: 'Déconnexion réussie.' };
   }
 
@@ -430,12 +462,12 @@ export class AuthService {
       dashboardUrl: user ? this.getDashboardUrl(user.role) : '/dashboard',
       session: data.session
         ? {
-            accessToken: data.session.access_token,
-            refreshToken: data.session.refresh_token,
-            expiresIn: data.session.expires_in,
-            expiresAt: data.session.expires_at,
-            tokenType: data.session.token_type,
-          }
+          accessToken: data.session.access_token,
+          refreshToken: data.session.refresh_token,
+          expiresIn: data.session.expires_in,
+          expiresAt: data.session.expires_at,
+          tokenType: data.session.token_type,
+        }
         : null,
       user,
     };
@@ -445,6 +477,12 @@ export class AuthService {
    * Synchronisation manuelle d'un utilisateur Supabase déjà connecté
    */
   async syncUser(currentUser: any, dto: SyncUserDto) {
+    if (dto.role === UserRole.ADMIN) {
+      throw new ForbiddenException(
+        'La création d’un compte administrateur n’est pas autorisée via cette route.',
+      );
+    }
+
     const supabaseUid = currentUser.supabaseUid;
     const email = currentUser.email;
 

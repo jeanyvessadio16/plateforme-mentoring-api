@@ -3,6 +3,7 @@ import {
   IsBoolean,
   IsEmail,
   IsEnum,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -12,6 +13,13 @@ import {
   MinLength,
 } from 'class-validator';
 import { MilieuResidence, Sexe, UserRole } from '../../../generated/prisma/client.js';
+
+const PUBLIC_REGISTER_ROLES = [
+  UserRole.BENEFICIAIRE,
+  UserRole.MENTOR,
+  UserRole.EXPERT,
+  UserRole.PARTENAIRE,
+] as const;
 
 export class RegisterDto {
   @ApiProperty({ description: 'Adresse e-mail unique', example: 'fatou.diop@example.com' })
@@ -92,11 +100,13 @@ export class RegisterDto {
   pays: string;
 
   @ApiProperty({
-    enum: UserRole,
+    enum: PUBLIC_REGISTER_ROLES,
     description: 'Type de compte / rôle souhaité',
     example: UserRole.BENEFICIAIRE,
   })
-  @IsEnum(UserRole, { message: 'Le rôle doit être valide (BENEFICIAIRE, MENTOR, EXPERT, PARTENAIRE).' })
+  @IsIn(PUBLIC_REGISTER_ROLES, {
+    message: 'Le rôle doit être BENEFICIAIRE, MENTOR, EXPERT ou PARTENAIRE.',
+  })
   role: UserRole;
 
   @ApiPropertyOptional({ description: 'Langue de préférence', default: 'fr', example: 'fr' })
@@ -114,13 +124,4 @@ export class RegisterDto {
   })
   @IsBoolean()
   consentData: boolean;
-
-  @ApiPropertyOptional({
-    description: 'Confirmer automatiquement l’adresse e-mail (activé par défaut pour faciliter le test du MVP)',
-    default: true,
-    example: true,
-  })
-  @IsBoolean()
-  @IsOptional()
-  autoConfirm?: boolean = true;
 }

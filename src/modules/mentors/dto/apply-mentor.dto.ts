@@ -96,6 +96,11 @@ export class ApplyMentorDto {
   @IsOptional()
   cvUrl?: string;
 
+  @ApiPropertyOptional({ description: 'URL du profil LinkedIn' })
+  @IsString()
+  @IsOptional()
+  linkedinUrl?: string;
+
   @ApiPropertyOptional({ description: 'Références professionnelles ou liens LinkedIn' })
   @IsString()
   @IsOptional()

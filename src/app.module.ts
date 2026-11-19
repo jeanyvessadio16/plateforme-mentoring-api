@@ -18,6 +18,8 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor.js
 import { AuthModule } from './modules/auth/auth.module.js';
 import { UsersModule } from './modules/users/users.module.js';
 import { MentorsModule } from './modules/mentors/mentors.module.js';
+import { DiagnosticModule } from './modules/diagnostic/diagnostic.module.js';
+import { MatchingModule } from './modules/matching/matching.module.js';
 
 @Module({
   imports: [
@@ -45,10 +47,12 @@ import { MentorsModule } from './modules/mentors/mentors.module.js';
     PrismaModule,
     SupabaseModule,
 
-    // Modules Fonctionnels (F01, F02, F03, F06)
+    // Modules Fonctionnels (F01, F02, F03, F04, F05, F06)
     AuthModule,
     UsersModule,
     MentorsModule,
+    DiagnosticModule,
+    MatchingModule,
   ],
   controllers: [AppController],
   providers: [

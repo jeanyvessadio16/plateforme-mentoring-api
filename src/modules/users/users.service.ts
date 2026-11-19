@@ -1,14 +1,22 @@
 import {
   ForbiddenException,
   Injectable,
+  InternalServerErrorException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service.js';
+import { SupabaseService } from '../../core/supabase/supabase.service.js';
 import { UpdateUserProfileDto } from './dto/update-user-profile.dto.js';
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(UsersService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly supabaseService: SupabaseService,
+  ) {}
 
   /**
    * Récupère le profil complet de l'utilisateur connecté
@@ -128,6 +136,26 @@ export class UsersService {
    * Suppression de compte et données personnelles (Droit à l'oubli RGPD)
    */
   async deleteAccount(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, supabaseUid: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Utilisateur introuvable.');
+    }
+
+    if (user.supabaseUid) {
+      const adminClient = this.supabaseService.getAdminClient();
+      const { error } = await adminClient.auth.admin.deleteUser(user.supabaseUid);
+      if (error && error.code !== 'user_not_found' && !error.message?.toLowerCase().includes('not found')) {
+        this.logger.error(`Échec suppression Supabase Auth (${user.supabaseUid}): ${error.message}`);
+        throw new InternalServerErrorException(
+          'Impossible de supprimer le compte dans le service d’authentification.',
+        );
+      }
+    }
+
     await this.prisma.user.delete({
       where: { id: userId },
     });
