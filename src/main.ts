@@ -80,8 +80,8 @@ async function bootstrap() {
   });
 
   // 6. Démarrage de l'écoute HTTP
-  const port = process.env.PORT ?? 3001;
-  await app.listen(port);
+  const port = Number(process.env.PORT) || 3001;
+  await app.listen(port, '0.0.0.0');
 
   logger.log(`🚀 Serveur actif sur : http://localhost:${port}`);
   logger.log(`📚 Documentation Swagger accessible sur : http://localhost:${port}/api/docs`);
