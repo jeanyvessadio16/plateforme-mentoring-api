@@ -13,16 +13,36 @@ async function bootstrap() {
   app.useBodyParser('json', { limit: '10mb' });
 
   // 1. Sécurité des en-têtes HTTP (Helmet)
-  app.use(helmet());
+  app.use(
+    helmet({
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
+    }),
+  );
 
   // 2. Cross-Origin Resource Sharing (CORS)
-  const allowedOrigins = process.env.CORS_ORIGIN
-    ? process.env.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean)
-    : ['http://localhost:3000', 'http://127.0.0.1:3000'];
+  const defaultAllowedOrigins = [
+    'https://acceent-mentoring.vercel.app',
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+  ];
+  const envOrigins = process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',')
+        .map((origin) => origin.trim().replace(/\/+$/, ''))
+        .filter(Boolean)
+    : [];
+  const allowedOrigins = Array.from(
+    new Set([...defaultAllowedOrigins, ...envOrigins]),
+  );
 
   app.enableCors({
     origin: allowedOrigins,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'Accept',
+      'X-Requested-With',
+    ],
     credentials: true,
   });
 
