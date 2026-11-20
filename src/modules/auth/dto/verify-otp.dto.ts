@@ -1,16 +1,29 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEmail, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { ApiPropertyOptional } from '@nestjs/swagger';
+import { IsEmail, IsOptional, IsString } from 'class-validator';
 
 export class VerifyOtpDto {
-  @ApiProperty({ description: 'Adresse e-mail associée au code OTP', example: 'fatou.diop@example.com' })
+  @ApiPropertyOptional({
+    description: 'Adresse e-mail associée au code OTP',
+    example: 'fatou.diop@example.com',
+  })
   @IsEmail({}, { message: 'Format d’adresse e-mail invalide.' })
-  @IsNotEmpty()
-  email: string;
+  @IsOptional()
+  email?: string;
 
-  @ApiProperty({ description: 'Code de vérification OTP reçu par e-mail ou SMS', example: '123456' })
+  @ApiPropertyOptional({
+    description: 'Code de vérification OTP reçu par e-mail ou SMS',
+    example: '123456',
+  })
   @IsString()
-  @IsNotEmpty()
-  token: string;
+  @IsOptional()
+  token?: string;
+
+  @ApiPropertyOptional({
+    description: 'Jeton token_hash reçu dans le lien de confirmation e-mail',
+  })
+  @IsString()
+  @IsOptional()
+  tokenHash?: string;
 
   @ApiPropertyOptional({
     description: 'Type d’opération de vérification',

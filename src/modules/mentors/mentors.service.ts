@@ -6,7 +6,12 @@ import {
 import { PrismaService } from '../../core/database/prisma.service.js';
 import { ApplyMentorDto } from './dto/apply-mentor.dto.js';
 import { FilterMentorsDto } from './dto/filter-mentors.dto.js';
-import { AccountStatus, UserRole } from '../../generated/prisma/client.js';
+import { UpdateMentorProfileDto } from './dto/update-mentor-profile.dto.js';
+import {
+  AccountStatus,
+  MentorshipType,
+  UserRole,
+} from '../../generated/prisma/client.js';
 
 @Injectable()
 export class MentorsService {
@@ -154,6 +159,65 @@ export class MentorsService {
     return this.prisma.mentorProfile.update({
       where: { userId },
       data: { isAvailable },
+    });
+  }
+
+  /**
+   * Mise à jour partielle du profil mentor / expert existant sans réinitialiser statutValidation
+   */
+  async updateMyMentorProfile(userId: string, dto: UpdateMentorProfileDto) {
+    const existing = await this.prisma.mentorProfile.findUnique({
+      where: { userId },
+    });
+
+    if (!existing) {
+      return this.prisma.mentorProfile.create({
+        data: {
+          userId,
+          fonction: dto.fonction ?? 'Mentor',
+          organisation: dto.organisation ?? '',
+          anneesExperience: dto.anneesExperience ?? 0,
+          expertises: dto.expertises ?? [],
+          secteurs: dto.secteurs ?? [],
+          langues: dto.langues ?? ['Français'],
+          publicsAccompagnes: dto.publicsAccompagnes ?? [],
+          typesMentoring: dto.typesMentoring ?? MentorshipType.INDIVIDUEL,
+          disponibilites: dto.disponibilites ?? null,
+          biographie: dto.biographie ?? '',
+          photoUrl: dto.photoUrl ?? null,
+          linkedinUrl: dto.linkedinUrl ?? null,
+          references: dto.references ?? null,
+          statutValidation: AccountStatus.PENDING,
+          isAvailable: false,
+        },
+      });
+    }
+
+    return this.prisma.mentorProfile.update({
+      where: { userId },
+      data: {
+        ...(dto.fonction !== undefined ? { fonction: dto.fonction } : {}),
+        ...(dto.organisation !== undefined ? { organisation: dto.organisation } : {}),
+        ...(dto.anneesExperience !== undefined
+          ? { anneesExperience: dto.anneesExperience }
+          : {}),
+        ...(dto.expertises !== undefined ? { expertises: dto.expertises } : {}),
+        ...(dto.secteurs !== undefined ? { secteurs: dto.secteurs } : {}),
+        ...(dto.langues !== undefined ? { langues: dto.langues } : {}),
+        ...(dto.publicsAccompagnes !== undefined
+          ? { publicsAccompagnes: dto.publicsAccompagnes }
+          : {}),
+        ...(dto.typesMentoring !== undefined
+          ? { typesMentoring: dto.typesMentoring }
+          : {}),
+        ...(dto.disponibilites !== undefined
+          ? { disponibilites: dto.disponibilites }
+          : {}),
+        ...(dto.biographie !== undefined ? { biographie: dto.biographie } : {}),
+        ...(dto.photoUrl !== undefined ? { photoUrl: dto.photoUrl } : {}),
+        ...(dto.linkedinUrl !== undefined ? { linkedinUrl: dto.linkedinUrl } : {}),
+        ...(dto.references !== undefined ? { references: dto.references } : {}),
+      },
     });
   }
 

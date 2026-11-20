@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
@@ -17,7 +18,14 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto.js';
 import { ResetPasswordDto } from './dto/reset-password.dto.js';
 import { VerifyOtpDto } from './dto/verify-otp.dto.js';
 import { SyncUserDto } from './dto/sync-user.dto.js';
-import { AccountStatus, UserRole } from '../../generated/prisma/client.js';
+import {
+  AccountStatus,
+  MentorshipType,
+  UserRole,
+} from '../../generated/prisma/client.js';
+
+const CV_STORAGE_BUCKET = 'mentor-documents';
+const MAX_CV_FILE_BYTES = 5 * 1024 * 1024;
 
 @Injectable()
 export class AuthService {
@@ -79,6 +87,40 @@ export class AuthService {
     }
   }
 
+  private decodeAndValidatePdfBase64(rawBase64: string): Buffer {
+    const cleaned = rawBase64
+      .replace(/^data:application\/pdf;base64,/i, '')
+      .trim();
+    if (!cleaned) {
+      throw new BadRequestException('Le fichier CV sélectionné est vide.');
+    }
+
+    const buffer = Buffer.from(cleaned, 'base64');
+    if (buffer.length === 0) {
+      throw new BadRequestException('Le fichier CV sélectionné est vide.');
+    }
+
+    if (buffer.length > MAX_CV_FILE_BYTES) {
+      throw new BadRequestException('Le fichier CV ne doit pas dépasser 5 Mo.');
+    }
+
+    const isPdf =
+      buffer.length >= 5 &&
+      buffer[0] === 0x25 &&
+      buffer[1] === 0x50 &&
+      buffer[2] === 0x44 &&
+      buffer[3] === 0x46 &&
+      buffer[4] === 0x2d;
+
+    if (!isPdf) {
+      throw new BadRequestException(
+        'Format non supporté. Veuillez téléverser votre CV au format PDF uniquement.',
+      );
+    }
+
+    return buffer;
+  }
+
   /**
    * F01 - Inscription d'un nouvel utilisateur (auth/register)
    */
@@ -95,6 +137,14 @@ export class AuthService {
       );
     }
 
+    const isMentorOrExpert =
+      dto.role === UserRole.MENTOR || dto.role === UserRole.EXPERT;
+
+    let cvBuffer: Buffer | null = null;
+    if (isMentorOrExpert && dto.cvBase64) {
+      cvBuffer = this.decodeAndValidatePdfBase64(dto.cvBase64);
+    }
+
     // Vérifier si un compte existe déjà avec cette adresse email
     const existing = await this.prisma.user.findUnique({
       where: { email: dto.email },
@@ -107,6 +157,13 @@ export class AuthService {
     const publicClient = this.supabaseService.getClient();
 
     let supabaseUid: string;
+    let signUpSession: {
+      access_token: string;
+      refresh_token: string;
+      expires_in: number;
+      expires_at?: number;
+      token_type: string;
+    } | null = null;
     const autoConfirmed = this.configService.get<string>('AUTH_AUTO_CONFIRM') === 'true';
 
     if (autoConfirmed) {
@@ -151,6 +208,7 @@ export class AuthService {
         );
       }
       supabaseUid = signedUp.user.id;
+      signUpSession = signedUp.session ?? null;
     }
 
     // Règle métier : les bénéficiaires sont actifs immédiatement s'ils sont confirmés,
@@ -167,7 +225,31 @@ export class AuthService {
           ? dto.sdh
           : false;
 
-    // Création transactionnelle dans la base de données locale (avec rollback Supabase Auth en cas d'échec)
+    const newUserId = randomUUID();
+    let uploadedCvPath: string | null = null;
+
+    if (cvBuffer) {
+      const storagePath = `cvs/${newUserId}/cv-${Date.now()}.pdf`;
+      try {
+        uploadedCvPath = await this.supabaseService.uploadPrivateFile(
+          CV_STORAGE_BUCKET,
+          storagePath,
+          cvBuffer,
+          'application/pdf',
+        );
+      } catch (uploadErr) {
+        try {
+          await adminClient.auth.admin.deleteUser(supabaseUid);
+        } catch (rollbackError) {
+          const errMsg =
+            rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
+          this.logger.error(`Échec rollback Supabase Auth (${supabaseUid}): ${errMsg}`);
+        }
+        throw uploadErr;
+      }
+    }
+
+    // Création transactionnelle dans la base de données locale (avec rollback Supabase Auth & Storage en cas d'échec)
     let user: Awaited<ReturnType<typeof this.prisma.user.create>> & {
       profile?: unknown;
       mentorProfile?: unknown;
@@ -175,6 +257,7 @@ export class AuthService {
     try {
       user = await this.prisma.user.create({
         data: {
+          id: newUserId,
           supabaseUid,
           email: dto.email,
           nom: dto.nom,
@@ -192,25 +275,35 @@ export class AuthService {
           consentData: dto.consentData,
           profile: {
             create: {
-              competences: [],
+              anneesExperience: isMentorOrExpert ? (dto.anneesExperience ?? 1) : 0,
+              secteurActivite:
+                isMentorOrExpert && dto.secteurs?.length ? dto.secteurs[0] : null,
+              competences: isMentorOrExpert ? (dto.expertises ?? []) : [],
               centresInteret: [],
               objectifs: [],
               langues: [dto.langue || 'fr'],
+              disponibilite: isMentorOrExpert ? (dto.disponibilites ?? null) : null,
             },
           },
-          // Si mentor, on initialise également son profil mentor en attente
-          ...(dto.role === UserRole.MENTOR
+          // Si mentor ou expert, on initialise également son profil mentor en attente
+          ...(isMentorOrExpert
             ? {
               mentorProfile: {
                 create: {
-                  fonction: 'En attente de renseignement',
-                  organisation: 'Non renseigné',
-                  anneesExperience: 0,
-                  expertises: [],
-                  secteurs: [],
-                  langues: [dto.langue || 'fr'],
+                  fonction: dto.fonction?.trim() || 'En attente de renseignement',
+                  organisation: dto.organisation?.trim() || 'Non renseigné',
+                  anneesExperience: dto.anneesExperience ?? 0,
+                  expertises: dto.expertises ?? [],
+                  secteurs: dto.secteurs ?? [],
+                  langues: ['Français'],
                   publicsAccompagnes: [],
-                  biographie: 'Profil mentor en cours de complétion.',
+                  typesMentoring: dto.typesMentoring ?? MentorshipType.INDIVIDUEL,
+                  disponibilites: dto.disponibilites?.trim() || null,
+                  biographie:
+                    dto.biographie?.trim() || 'Profil mentor en cours de complétion.',
+                  cvUrl: uploadedCvPath,
+                  linkedinUrl: dto.linkedinUrl?.trim() || null,
+                  references: dto.references?.trim() || null,
                   statutValidation: AccountStatus.PENDING,
                   isAvailable: false,
                 },
@@ -224,6 +317,9 @@ export class AuthService {
         },
       });
     } catch (error) {
+      if (uploadedCvPath) {
+        await this.supabaseService.removeFile(CV_STORAGE_BUCKET, uploadedCvPath);
+      }
       try {
         await adminClient.auth.admin.deleteUser(supabaseUid);
       } catch (rollbackError) {
@@ -263,7 +359,15 @@ export class AuthService {
       redirectUrl: this.getRedirectUrl(user),
       dashboardUrl: this.getDashboardUrl(user.role),
       user,
-      session: null,
+      session: signUpSession
+        ? {
+          accessToken: signUpSession.access_token,
+          refreshToken: signUpSession.refresh_token,
+          expiresIn: signUpSession.expires_in,
+          expiresAt: signUpSession.expires_at,
+          tokenType: signUpSession.token_type,
+        }
+        : null,
     };
   }
 
@@ -434,20 +538,45 @@ export class AuthService {
   async verifyOtp(dto: VerifyOtpDto) {
     const publicClient = this.supabaseService.getClient();
 
-    const { data, error } = await publicClient.auth.verifyOtp({
-      email: dto.email,
-      token: dto.token,
-      type: (dto.type as any) || 'signup',
-    });
+    let data: { user: any; session: any };
+    let error: { message?: string } | null = null;
 
-    if (error || !data.user) {
+    if (dto.tokenHash) {
+      const res = await publicClient.auth.verifyOtp({
+        token_hash: dto.tokenHash,
+        type: (dto.type as any) || 'recovery',
+      });
+      data = res.data;
+      error = res.error;
+    } else if (dto.email && dto.token) {
+      const res = await publicClient.auth.verifyOtp({
+        email: dto.email,
+        token: dto.token,
+        type: (dto.type as any) || 'signup',
+      });
+      data = res.data;
+      error = res.error;
+    } else {
+      throw new BadRequestException(
+        'Veuillez fournir tokenHash ou un couple email et code OTP.',
+      );
+    }
+
+    if (error || !data?.user) {
       throw new BadRequestException(error?.message || 'Code OTP invalide ou expiré.');
     }
 
     // Activer l'utilisateur bénéficiaire s'il était en attente (mentors/experts/partenaires restent PENDING pour validation admin)
+    const whereClauses: Array<Record<string, unknown>> = [{ supabaseUid: data.user.id }];
+    if (dto.email) {
+      whereClauses.push({ email: dto.email });
+    } else if (data.user.email) {
+      whereClauses.push({ email: data.user.email });
+    }
+
     let user = await this.prisma.user.findFirst({
       where: {
-        OR: [{ supabaseUid: data.user.id }, { email: dto.email }],
+        OR: whereClauses,
       },
       include: {
         profile: true,

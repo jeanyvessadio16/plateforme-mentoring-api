@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   Patch,
+  Post,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -14,6 +15,7 @@ import {
 } from '@nestjs/swagger';
 import { UsersService } from './users.service.js';
 import { UpdateUserProfileDto } from './dto/update-user-profile.dto.js';
+import { UploadAvatarDto } from './dto/upload-avatar.dto.js';
 import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
 import { Public } from '../../common/decorators/public.decorator.js';
 
@@ -38,6 +40,23 @@ export class UsersController {
     @Body() dto: UpdateUserProfileDto,
   ) {
     return this.usersService.updateProfile(userId, dto);
+  }
+
+  @Post('me/avatar')
+  @ApiOperation({ summary: 'Téléverser ou remplacer ma photo de profil' })
+  @ApiResponse({ status: 201, description: 'Photo de profil mise à jour.' })
+  async uploadAvatar(
+    @CurrentUser('id') userId: string,
+    @Body() dto: UploadAvatarDto,
+  ) {
+    return this.usersService.uploadAvatar(userId, dto.base64Data);
+  }
+
+  @Delete('me/avatar')
+  @ApiOperation({ summary: 'Supprimer ma photo de profil' })
+  @ApiResponse({ status: 200, description: 'Photo de profil supprimée.' })
+  async deleteAvatar(@CurrentUser('id') userId: string) {
+    return this.usersService.deleteAvatar(userId);
   }
 
   @Get('me/export')

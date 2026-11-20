@@ -232,4 +232,57 @@ describe('AuthService', () => {
     expect(mockPrisma.user.update).not.toHaveBeenCalled();
     expect(resMen.user?.statutCompte).toBe(AccountStatus.PENDING);
   });
+
+  it('rejects non-PDF base64 CV during mentor register before hitting Supabase Auth', async () => {
+    const fakeNotPdf = Buffer.from('NOT-A-PDF-HEADER').toString('base64');
+
+    await expect(
+      service.register({
+        email: 'mentor-bad-cv@example.com',
+        password: 'Password123!',
+        nom: 'Diallo',
+        prenom: 'Oumar',
+        pays: 'Sénégal',
+        role: UserRole.MENTOR,
+        consentCgu: true,
+        consentData: true,
+        cvBase64: fakeNotPdf,
+      }),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(mockSignUp).not.toHaveBeenCalled();
+  });
+
+  it('supports tokenHash OTP verification for email callback links', async () => {
+    mockVerifyOtp.mockResolvedValue({
+      data: {
+        user: { id: 'sub-hash-1', email: 'hash@example.com' },
+        session: {
+          access_token: 'acc-hash',
+          refresh_token: 'ref-hash',
+          expires_in: 3600,
+          expires_at: 999999,
+          token_type: 'bearer',
+        },
+      },
+      error: null,
+    });
+    mockPrisma.user.findFirst.mockResolvedValue({
+      id: 'u-hash',
+      role: UserRole.BENEFICIAIRE,
+      statutCompte: AccountStatus.ACTIVE,
+      diagnostic: { isCompleted: true },
+    });
+
+    const result = await service.verifyOtp({
+      tokenHash: 'hash-token-value',
+      type: 'recovery',
+    });
+
+    expect(mockVerifyOtp).toHaveBeenCalledWith({
+      token_hash: 'hash-token-value',
+      type: 'recovery',
+    });
+    expect(result.session?.accessToken).toBe('acc-hash');
+  });
 });

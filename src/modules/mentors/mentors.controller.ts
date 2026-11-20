@@ -17,8 +17,11 @@ import { MentorsService } from './mentors.service.js';
 import { ApplyMentorDto } from './dto/apply-mentor.dto.js';
 import { FilterMentorsDto } from './dto/filter-mentors.dto.js';
 import { UpdateAvailabilityDto } from './dto/update-availability.dto.js';
+import { UpdateMentorProfileDto } from './dto/update-mentor-profile.dto.js';
 import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
 import { Public } from '../../common/decorators/public.decorator.js';
+import { Roles } from '../../common/decorators/roles.decorator.js';
+import { UserRole } from '../../generated/prisma/client.js';
 
 @ApiTags('Mentors')
 @ApiBearerAuth('JWT-auth')
@@ -42,6 +45,17 @@ export class MentorsController {
   @ApiResponse({ status: 200, description: 'Profil mentor récupéré.' })
   async getMyMentorProfile(@CurrentUser('id') userId: string) {
     return this.mentorsService.getMyMentorProfile(userId);
+  }
+
+  @Roles(UserRole.MENTOR, UserRole.EXPERT, UserRole.ADMIN)
+  @Patch('me')
+  @ApiOperation({ summary: 'Mettre à jour mon profil mentor/expert sans réinitialiser la validation' })
+  @ApiResponse({ status: 200, description: 'Profil mentor mis à jour.' })
+  async updateMyMentorProfile(
+    @CurrentUser('id') userId: string,
+    @Body() dto: UpdateMentorProfileDto,
+  ) {
+    return this.mentorsService.updateMyMentorProfile(userId, dto);
   }
 
   @Patch('me/availability')

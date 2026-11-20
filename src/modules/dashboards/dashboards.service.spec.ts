@@ -2,17 +2,17 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Test, TestingModule } from '@nestjs/testing';
 import { DashboardsService } from './dashboards.service.js';
 import { PrismaService } from '../../core/database/prisma.service.js';
-import { AccountStatus } from '../../generated/prisma/client.js';
+import { AccountStatus, UserRole } from '../../generated/prisma/client.js';
 
 describe('DashboardsService', () => {
   let service: DashboardsService;
 
   const mockPrisma = {
     user: { findUnique: vi.fn(), count: vi.fn() },
-    mentorProfile: { count: vi.fn() },
+    mentorProfile: { count: vi.fn(), findMany: vi.fn() },
     mentorshipProgram: { findMany: vi.fn(), count: vi.fn() },
     mentorshipRequest: { findMany: vi.fn(), count: vi.fn() },
-    mentorshipSession: { findFirst: vi.fn(), findMany: vi.fn(), count: vi.fn() },
+    mentorshipSession: { findMany: vi.fn(), count: vi.fn(), aggregate: vi.fn() },
     matchingResult: { findMany: vi.fn() },
     opportunity: { findMany: vi.fn(), count: vi.fn() },
     masterclass: { findMany: vi.fn(), count: vi.fn() },
@@ -42,7 +42,11 @@ describe('DashboardsService', () => {
       email: 'a@example.com',
       telephone: '+221770000000',
       pays: 'Sénégal',
+      role: UserRole.BENEFICIAIRE,
       age: 24,
+      sexe: null,
+      milieuResidence: null,
+      situationHandicap: false,
       statutCompte: AccountStatus.ACTIVE,
       profile: {
         ville: 'Dakar',
@@ -51,12 +55,15 @@ describe('DashboardsService', () => {
         competences: ['JS'],
         objectifs: ['Emploi'],
         disponibilite: 'Soir',
+        photoUrl: null,
       },
       diagnostic: { isCompleted: true },
     });
     mockPrisma.mentorshipProgram.findMany.mockResolvedValue([]);
-    mockPrisma.mentorshipSession.findFirst.mockResolvedValue(null);
+    mockPrisma.mentorshipSession.findMany.mockResolvedValue([]);
+    mockPrisma.mentorshipSession.count.mockResolvedValue(1);
     mockPrisma.matchingResult.findMany.mockResolvedValue([]);
+    mockPrisma.mentorProfile.findMany.mockResolvedValue([]);
     mockPrisma.opportunity.findMany.mockResolvedValue([]);
     mockPrisma.masterclass.findMany.mockResolvedValue([]);
     mockPrisma.notification.count.mockResolvedValue(2);
@@ -65,8 +72,11 @@ describe('DashboardsService', () => {
 
     expect(res.user.profileCompletion).toBe(100);
     expect(res.unreadNotificationsCount).toBe(2);
+    expect(res.completedSessionsCount).toBe(1);
     const matchingSelect = mockPrisma.matchingResult.findMany.mock.calls[0][0].select;
     expect(matchingSelect.mentor.select.cvUrl).toBeUndefined();
+    const fallbackSelect = mockPrisma.mentorProfile.findMany.mock.calls[0][0].select;
+    expect(fallbackSelect.cvUrl).toBeUndefined();
     const mcSelect = mockPrisma.masterclass.findMany.mock.calls[0][0].select;
     expect(mcSelect.lienLive).toBeUndefined();
   });
@@ -76,7 +86,7 @@ describe('DashboardsService', () => {
     mockPrisma.user.count.mockResolvedValue(150);
     mockPrisma.mentorshipSession.count.mockResolvedValue(45);
     mockPrisma.opportunity.count.mockResolvedValue(8);
-    mockPrisma.masterclass.count.mockResolvedValue(3);
+    mockPrisma.masterclass.count.mockResolvedValueOnce(3).mockResolvedValueOnce(6);
 
     const stats = await service.getPublicStats();
     expect(stats).toEqual({
@@ -85,6 +95,7 @@ describe('DashboardsService', () => {
       completedSessions: 45,
       activeOpportunities: 8,
       upcomingMasterclasses: 3,
+      totalMasterclasses: 6,
     });
   });
 });

@@ -1,4 +1,5 @@
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
@@ -6,7 +7,10 @@ import { AppModule } from './app.module.js';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // Augmenter la limite JSON pour les téléversements encapsulés en base64 (avatars, CV)
+  app.useBodyParser('json', { limit: '10mb' });
 
   // 1. Sécurité des en-têtes HTTP (Helmet)
   app.use(helmet());

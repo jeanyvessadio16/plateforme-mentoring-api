@@ -3,10 +3,12 @@ import { PrismaService } from '../../core/database/prisma.service.js';
 import {
   AccountStatus,
   MasterclassStatus,
+  MilieuResidence,
   OpportunityStatus,
   ProgramStatus,
   RequestStatus,
   SessionStatus,
+  Sexe,
   TaskStatus,
   UserRole,
 } from '../../generated/prisma/client.js';
@@ -55,6 +57,7 @@ export class DashboardsService {
       completedSessions,
       activeOpportunities,
       upcomingMasterclasses,
+      totalMasterclasses,
     ] = await Promise.all([
       this.prisma.mentorProfile.count({
         where: { statutValidation: AccountStatus.ACTIVE, isAvailable: true },
@@ -71,6 +74,7 @@ export class DashboardsService {
       this.prisma.masterclass.count({
         where: { statut: MasterclassStatus.UPCOMING },
       }),
+      this.prisma.masterclass.count(),
     ]);
 
     return {
@@ -79,6 +83,7 @@ export class DashboardsService {
       completedSessions,
       activeOpportunities,
       upcomingMasterclasses,
+      totalMasterclasses,
     };
   }
 
@@ -98,7 +103,8 @@ export class DashboardsService {
     const now = new Date();
     const [
       activePrograms,
-      nextSession,
+      upcomingSessions,
+      completedSessionsCount,
       topRecommendations,
       recommendedOpportunities,
       upcomingMasterclasses,
@@ -107,7 +113,15 @@ export class DashboardsService {
       this.prisma.mentorshipProgram.findMany({
         where: { menteeId: userId, status: ProgramStatus.ACTIVE },
         include: {
-          mentor: { select: { id: true, nom: true, prenom: true } },
+          mentor: {
+            select: {
+              id: true,
+              nom: true,
+              prenom: true,
+              email: true,
+              mentorProfile: { select: { fonction: true, organisation: true } },
+            },
+          },
           goals: { orderBy: { createdAt: 'asc' } },
           tasks: {
             where: { status: { not: TaskStatus.COMPLETED } },
@@ -117,16 +131,28 @@ export class DashboardsService {
         },
         orderBy: { updatedAt: 'desc' },
       }),
-      this.prisma.mentorshipSession.findFirst({
+      this.prisma.mentorshipSession.findMany({
         where: {
           menteeId: userId,
-          status: { in: [SessionStatus.SCHEDULED, SessionStatus.RESCHEDULED] },
-          dateDebut: { gte: now },
+          OR: [
+            { status: SessionStatus.SCHEDULED },
+            {
+              status: SessionStatus.RESCHEDULED,
+              dateDebut: { gte: now },
+            },
+            {
+              dateDebut: { gte: now },
+              status: { not: SessionStatus.CANCELLED },
+            },
+          ],
         },
         include: {
           mentor: { select: { id: true, nom: true, prenom: true } },
         },
         orderBy: { dateDebut: 'asc' },
+      }),
+      this.prisma.mentorshipSession.count({
+        where: { menteeId: userId, status: SessionStatus.COMPLETED },
       }),
       this.prisma.matchingResult.findMany({
         where: { menteeId: userId },
@@ -143,6 +169,7 @@ export class DashboardsService {
               anneesExperience: true,
               expertises: true,
               secteurs: true,
+              isAvailable: true,
               photoUrl: true,
               user: { select: { id: true, nom: true, prenom: true, pays: true } },
             },
@@ -176,6 +203,27 @@ export class DashboardsService {
       }),
     ]);
 
+    const fallbackMentors =
+      topRecommendations.length === 0
+        ? await this.prisma.mentorProfile.findMany({
+            where: { statutValidation: AccountStatus.ACTIVE, isAvailable: true },
+            select: {
+              id: true,
+              userId: true,
+              fonction: true,
+              organisation: true,
+              anneesExperience: true,
+              expertises: true,
+              secteurs: true,
+              isAvailable: true,
+              photoUrl: true,
+              user: { select: { id: true, nom: true, prenom: true, pays: true } },
+            },
+            take: 4,
+            orderBy: { anneesExperience: 'desc' },
+          })
+        : [];
+
     return {
       user: {
         id: user.id,
@@ -183,13 +231,22 @@ export class DashboardsService {
         prenom: user.prenom,
         email: user.email,
         pays: user.pays,
+        role: user.role,
+        age: user.age,
+        sexe: user.sexe,
+        milieuResidence: user.milieuResidence,
+        situationHandicap: user.situationHandicap,
         statutCompte: user.statutCompte,
+        photoUrl: user.profile?.photoUrl ?? null,
         profileCompletion: this.computeProfileCompletion(user),
       },
       diagnostic: user.diagnostic,
       activePrograms,
-      nextSession,
+      nextSession: upcomingSessions[0] ?? null,
+      upcomingSessions,
+      completedSessionsCount,
       topRecommendations,
+      fallbackMentors,
       recommendedOpportunities,
       upcomingMasterclasses,
       unreadNotificationsCount,
@@ -199,7 +256,10 @@ export class DashboardsService {
   async getMentorDashboard(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      include: { mentorProfile: true },
+      include: {
+        profile: { select: { photoUrl: true } },
+        mentorProfile: true,
+      },
     });
 
     if (!user) {
@@ -208,42 +268,37 @@ export class DashboardsService {
 
     const now = new Date();
     const [
-      pendingRequests,
-      totalRequestsCount,
+      requests,
       activePrograms,
-      upcomingSessions,
+      sessions,
       activeSlots,
       openTasksCount,
       unreadMessagesCount,
       unreadNotificationsCount,
     ] = await Promise.all([
       this.prisma.mentorshipRequest.findMany({
-        where: { mentorId: userId, status: RequestStatus.PENDING },
+        where: { mentorId: userId },
         include: {
-          mentee: { select: { id: true, nom: true, prenom: true, pays: true } },
+          mentee: {
+            select: { id: true, nom: true, prenom: true, email: true, pays: true },
+          },
         },
         orderBy: { createdAt: 'desc' },
       }),
-      this.prisma.mentorshipRequest.count({ where: { mentorId: userId } }),
       this.prisma.mentorshipProgram.findMany({
         where: { mentorId: userId, status: ProgramStatus.ACTIVE },
         include: {
-          mentee: { select: { id: true, nom: true, prenom: true } },
+          mentee: { select: { id: true, nom: true, prenom: true, email: true } },
           _count: { select: { goals: true, tasks: true } },
         },
         orderBy: { updatedAt: 'desc' },
       }),
       this.prisma.mentorshipSession.findMany({
-        where: {
-          mentorId: userId,
-          status: { in: [SessionStatus.SCHEDULED, SessionStatus.RESCHEDULED] },
-          dateDebut: { gte: now },
-        },
+        where: { mentorId: userId },
         include: {
           mentee: { select: { id: true, nom: true, prenom: true } },
         },
         orderBy: { dateDebut: 'asc' },
-        take: 10,
       }),
       this.prisma.availabilitySlot.findMany({
         where: { mentorId: userId, isActive: true },
@@ -269,19 +324,35 @@ export class DashboardsService {
       }),
     ]);
 
+    const pendingRequests = requests.filter((r) => r.status === RequestStatus.PENDING);
+    const upcomingSessions = sessions.filter(
+      (s) =>
+        (s.status === SessionStatus.SCHEDULED ||
+          s.status === SessionStatus.RESCHEDULED) &&
+        s.dateDebut >= now,
+    );
+    const completedSessionsCount = sessions.filter(
+      (s) => s.status === SessionStatus.COMPLETED,
+    ).length;
+
     return {
       user: {
         id: user.id,
         nom: user.nom,
         prenom: user.prenom,
         email: user.email,
+        role: user.role,
         statutCompte: user.statutCompte,
+        photoUrl: user.profile?.photoUrl ?? null,
       },
       mentorProfile: user.mentorProfile,
+      requests,
       pendingRequests,
-      totalRequestsCount,
+      totalRequestsCount: requests.length,
       activePrograms,
+      sessions,
       upcomingSessions,
+      completedSessionsCount,
       activeSlots,
       openTasksCount,
       unreadMessagesCount,
@@ -300,31 +371,33 @@ export class DashboardsService {
     }
 
     const now = new Date();
-    const [masterclasses, upcomingSessions, completedSessionsCount, unreadNotificationsCount] =
-      await Promise.all([
-        this.prisma.masterclass.findMany({
-          orderBy: { dateSession: 'asc' },
-          take: 10,
-          include: { _count: { select: { registrations: true } } },
-        }),
-        this.prisma.mentorshipSession.findMany({
-          where: {
-            mentorId: userId,
-            status: { in: [SessionStatus.SCHEDULED, SessionStatus.RESCHEDULED] },
-            dateDebut: { gte: now },
-          },
-          include: {
-            mentee: { select: { id: true, nom: true, prenom: true } },
-          },
-          orderBy: { dateDebut: 'asc' },
-        }),
-        this.prisma.mentorshipSession.count({
-          where: { mentorId: userId, status: SessionStatus.COMPLETED },
-        }),
-        this.prisma.notification.count({
-          where: { userId, isRead: false },
-        }),
-      ]);
+    const [masterclasses, sessions, unreadNotificationsCount] = await Promise.all([
+      this.prisma.masterclass.findMany({
+        orderBy: { dateSession: 'asc' },
+        take: 10,
+        include: { _count: { select: { registrations: true } } },
+      }),
+      this.prisma.mentorshipSession.findMany({
+        where: { mentorId: userId },
+        include: {
+          mentee: { select: { id: true, nom: true, prenom: true } },
+        },
+        orderBy: { dateDebut: 'asc' },
+      }),
+      this.prisma.notification.count({
+        where: { userId, isRead: false },
+      }),
+    ]);
+
+    const upcomingSessions = sessions.filter(
+      (s) =>
+        (s.status === SessionStatus.SCHEDULED ||
+          s.status === SessionStatus.RESCHEDULED) &&
+        s.dateDebut >= now,
+    );
+    const completedSessionsCount = sessions.filter(
+      (s) => s.status === SessionStatus.COMPLETED,
+    ).length;
 
     return {
       user: {
@@ -332,10 +405,13 @@ export class DashboardsService {
         nom: user.nom,
         prenom: user.prenom,
         email: user.email,
+        role: user.role,
         statutCompte: user.statutCompte,
+        photoUrl: user.profile?.photoUrl ?? null,
       },
       mentorProfile: user.mentorProfile,
       masterclasses,
+      sessions,
       upcomingSessions,
       completedSessionsCount,
       unreadNotificationsCount,
@@ -345,7 +421,15 @@ export class DashboardsService {
   async getPartnerDashboard(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, nom: true, prenom: true, email: true, role: true },
+      select: {
+        id: true,
+        nom: true,
+        prenom: true,
+        email: true,
+        role: true,
+        statutCompte: true,
+        profile: { select: { photoUrl: true } },
+      },
     });
 
     if (!user) {
@@ -353,24 +437,26 @@ export class DashboardsService {
     }
 
     const [
-      activeOpportunitiesCount,
-      expiredOpportunitiesCount,
-      recentOpportunities,
-      totalBeneficiaries,
+      allOpportunities,
+      allUsers,
       activeMentors,
       activePrograms,
       completedPrograms,
       completedSessions,
+      ratingAggregate,
     ] = await Promise.all([
-      this.prisma.opportunity.count({ where: { status: OpportunityStatus.ACTIVE } }),
-      this.prisma.opportunity.count({ where: { status: OpportunityStatus.EXPIRED } }),
       this.prisma.opportunity.findMany({
-        where: { status: OpportunityStatus.ACTIVE },
         orderBy: { createdAt: 'desc' },
-        take: 10,
       }),
-      this.prisma.user.count({
-        where: { role: UserRole.BENEFICIAIRE, statutCompte: AccountStatus.ACTIVE },
+      this.prisma.user.findMany({
+        select: {
+          role: true,
+          statutCompte: true,
+          sexe: true,
+          milieuResidence: true,
+          situationHandicap: true,
+          age: true,
+        },
       }),
       this.prisma.mentorProfile.count({
         where: { statutValidation: AccountStatus.ACTIVE, isAvailable: true },
@@ -378,21 +464,104 @@ export class DashboardsService {
       this.prisma.mentorshipProgram.count({ where: { status: ProgramStatus.ACTIVE } }),
       this.prisma.mentorshipProgram.count({ where: { status: ProgramStatus.COMPLETED } }),
       this.prisma.mentorshipSession.count({ where: { status: SessionStatus.COMPLETED } }),
+      this.prisma.mentorshipSession.aggregate({
+        _avg: { rating: true },
+        where: { rating: { not: null } },
+      }),
     ]);
 
+    const activeOpportunitiesCount = allOpportunities.filter(
+      (o) => o.status === OpportunityStatus.ACTIVE,
+    ).length;
+    const expiredOpportunitiesCount = allOpportunities.filter(
+      (o) => o.status === OpportunityStatus.EXPIRED,
+    ).length;
+
+    const totalUsers = allUsers.length;
+    const totalBeneficiaries = allUsers.filter(
+      (u) => u.role === UserRole.BENEFICIAIRE,
+    ).length;
+    const totalMentors = allUsers.filter((u) => u.role === UserRole.MENTOR).length;
+    const totalPartners = allUsers.filter(
+      (u) => u.role === UserRole.PARTENAIRE,
+    ).length;
+    const pendingValidations = allUsers.filter(
+      (u) =>
+        (u.role === UserRole.MENTOR || u.role === UserRole.EXPERT) &&
+        u.statutCompte === AccountStatus.PENDING,
+    ).length;
+
+    const withSexe = allUsers.filter((u) => u.sexe !== null);
+    const females = allUsers.filter((u) => u.sexe === Sexe.FEMME).length;
+    const males = allUsers.filter((u) => u.sexe === Sexe.HOMME).length;
+    const withResidence = allUsers.filter((u) => u.milieuResidence !== null);
+    const rural = allUsers.filter(
+      (u) => u.milieuResidence === MilieuResidence.RURAL,
+    ).length;
+    const urban = allUsers.filter(
+      (u) => u.milieuResidence === MilieuResidence.URBAIN,
+    ).length;
+    const sdhCount = allUsers.filter((u) => u.situationHandicap).length;
+    const withAge = allUsers.filter((u) => typeof u.age === 'number' && u.age > 0);
+    const averageAge =
+      withAge.length > 0
+        ? Math.round(withAge.reduce((acc, u) => acc + (u.age ?? 0), 0) / withAge.length)
+        : 0;
+    const satisfactionRate = ratingAggregate._avg.rating
+      ? Math.round((ratingAggregate._avg.rating / 5) * 100)
+      : 0;
+
     return {
-      user,
+      user: {
+        id: user.id,
+        nom: user.nom,
+        prenom: user.prenom,
+        email: user.email,
+        role: user.role,
+        statutCompte: user.statutCompte,
+        photoUrl: user.profile?.photoUrl ?? null,
+      },
       opportunitiesSummary: {
         active: activeOpportunitiesCount,
         expired: expiredOpportunitiesCount,
       },
-      recentOpportunities,
+      recentOpportunities: allOpportunities.slice(0, 10),
+      opportunities: allOpportunities,
       platformImpact: {
-        totalBeneficiaries,
+        totalBeneficiaries: allUsers.filter(
+          (u) =>
+            u.role === UserRole.BENEFICIAIRE && u.statutCompte === AccountStatus.ACTIVE,
+        ).length,
         activeMentors,
         activePrograms,
         completedPrograms,
         completedSessions,
+      },
+      aggregatedStats: {
+        totalUsers,
+        totalBeneficiaries,
+        totalMentors,
+        totalPartners,
+        pendingValidations,
+        activePrograms,
+        completedSessions,
+        satisfactionRate,
+        demographics: {
+          femalePercentage:
+            withSexe.length > 0 ? Math.round((females / withSexe.length) * 100) : 0,
+          malePercentage:
+            withSexe.length > 0 ? Math.round((males / withSexe.length) * 100) : 0,
+          ruralPercentage:
+            withResidence.length > 0
+              ? Math.round((rural / withResidence.length) * 100)
+              : 0,
+          urbanPercentage:
+            withResidence.length > 0
+              ? Math.round((urban / withResidence.length) * 100)
+              : 0,
+          sdhPercentage: totalUsers > 0 ? Math.round((sdhCount / totalUsers) * 100) : 0,
+          averageAge,
+        },
       },
     };
   }

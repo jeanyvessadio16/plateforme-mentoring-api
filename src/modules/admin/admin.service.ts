@@ -217,6 +217,46 @@ export class AdminService {
         ? Math.round((completedProgramsCount / totalFinishedOrActivePrograms) * 1000) / 10
         : 0;
 
+    const usersWithGender = users.filter((u) => u.sexe !== null);
+    const femalesCount = bySexe[Sexe.FEMME] || 0;
+    const malesCount = bySexe[Sexe.HOMME] || 0;
+    const femalePercentage =
+      usersWithGender.length > 0
+        ? Math.round((femalesCount / usersWithGender.length) * 100)
+        : 0;
+    const malePercentage =
+      usersWithGender.length > 0
+        ? Math.round((malesCount / usersWithGender.length) * 100)
+        : 0;
+
+    const usersWithResidence = users.filter((u) => u.milieuResidence !== null);
+    const ruralCount = byMilieuResidence[MilieuResidence.RURAL] || 0;
+    const urbanCount = byMilieuResidence[MilieuResidence.URBAIN] || 0;
+    const ruralPercentage =
+      usersWithResidence.length > 0
+        ? Math.round((ruralCount / usersWithResidence.length) * 100)
+        : 0;
+    const urbanPercentage =
+      usersWithResidence.length > 0
+        ? Math.round((urbanCount / usersWithResidence.length) * 100)
+        : 0;
+
+    const sdhPercentage =
+      users.length > 0 ? Math.round((sdhCount / users.length) * 100) : 0;
+
+    const usersWithAge = users.filter((u) => typeof u.age === 'number' && u.age > 0);
+    const averageAge =
+      usersWithAge.length > 0
+        ? Math.round(
+            usersWithAge.reduce((acc, u) => acc + (u.age ?? 0), 0) /
+              usersWithAge.length,
+          )
+        : 0;
+
+    const satisfactionRate = ratingAggregate._avg.rating
+      ? Math.round((ratingAggregate._avg.rating / 5) * 100)
+      : 0;
+
     return {
       kpis: {
         totalUsers: users.length,
@@ -236,6 +276,7 @@ export class AdminService {
         averageSatisfactionRating: ratingAggregate._avg.rating
           ? Math.round(ratingAggregate._avg.rating * 100) / 100
           : null,
+        satisfactionRate,
         masterclassesCount,
         masterclassRegistrationsCount,
         totalOpportunitiesCount,
@@ -250,6 +291,12 @@ export class AdminService {
         sdhCount,
         byCountry,
         byAgeGroup,
+        femalePercentage,
+        malePercentage,
+        ruralPercentage,
+        urbanPercentage,
+        sdhPercentage,
+        averageAge,
       },
     };
   }
@@ -588,7 +635,15 @@ export class AdminService {
   async getRecentActivities() {
     const [recentUsers, recentRequests, recentReports] = await Promise.all([
       this.prisma.user.findMany({
-        select: { id: true, nom: true, prenom: true, role: true, createdAt: true },
+        select: {
+          id: true,
+          nom: true,
+          prenom: true,
+          email: true,
+          role: true,
+          statutCompte: true,
+          createdAt: true,
+        },
         orderBy: { createdAt: 'desc' },
         take: 10,
       }),

@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  IsArray,
   IsBoolean,
   IsEmail,
   IsEnum,
@@ -12,7 +13,12 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
-import { MilieuResidence, Sexe, UserRole } from '../../../generated/prisma/client.js';
+import {
+  MentorshipType,
+  MilieuResidence,
+  Sexe,
+  UserRole,
+} from '../../../generated/prisma/client.js';
 
 const PUBLIC_REGISTER_ROLES = [
   UserRole.BENEFICIAIRE,
@@ -124,4 +130,62 @@ export class RegisterDto {
   })
   @IsBoolean()
   consentData: boolean;
+
+  @ApiPropertyOptional({ description: 'Fonction / poste (candidature mentor ou expert)' })
+  @IsString()
+  @IsOptional()
+  fonction?: string;
+
+  @ApiPropertyOptional({ description: 'Organisation (candidature mentor ou expert)' })
+  @IsString()
+  @IsOptional()
+  organisation?: string;
+
+  @ApiPropertyOptional({ description: 'Années d’expérience (candidature mentor ou expert)' })
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  anneesExperience?: number;
+
+  @ApiPropertyOptional({ description: 'Expertises déclarées', type: [String] })
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  expertises?: string[];
+
+  @ApiPropertyOptional({ description: 'Secteurs déclarés', type: [String] })
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  secteurs?: string[];
+
+  @ApiPropertyOptional({ enum: MentorshipType, description: 'Type de mentoring proposé' })
+  @IsEnum(MentorshipType)
+  @IsOptional()
+  typesMentoring?: MentorshipType;
+
+  @ApiPropertyOptional({ description: 'Disponibilités déclarées' })
+  @IsString()
+  @IsOptional()
+  disponibilites?: string;
+
+  @ApiPropertyOptional({ description: 'Biographie de candidature mentor/expert' })
+  @IsString()
+  @IsOptional()
+  biographie?: string;
+
+  @ApiPropertyOptional({ description: 'Lien LinkedIn' })
+  @IsString()
+  @IsOptional()
+  linkedinUrl?: string;
+
+  @ApiPropertyOptional({ description: 'Références professionnelles' })
+  @IsString()
+  @IsOptional()
+  references?: string;
+
+  @ApiPropertyOptional({ description: 'CV PDF encodé en base64 (5 Mo maximum)' })
+  @IsString()
+  @IsOptional()
+  cvBase64?: string;
 }

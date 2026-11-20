@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   InternalServerErrorException,
@@ -8,6 +9,9 @@ import {
 import { PrismaService } from '../../core/database/prisma.service.js';
 import { SupabaseService } from '../../core/supabase/supabase.service.js';
 import { UpdateUserProfileDto } from './dto/update-user-profile.dto.js';
+
+const PROFILE_AVATAR_BUCKET = 'plateforme-images';
+const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
 
 @Injectable()
 export class UsersService {
@@ -93,8 +97,189 @@ export class UsersService {
       },
       include: {
         profile: true,
+        mentorProfile: true,
       },
     });
+  }
+
+  private detectImageFormat(buffer: Buffer): { mimeType: string; ext: string } | null {
+    if (
+      buffer.length >= 3 &&
+      buffer[0] === 0xff &&
+      buffer[1] === 0xd8 &&
+      buffer[2] === 0xff
+    ) {
+      return { mimeType: 'image/jpeg', ext: 'jpg' };
+    }
+    if (
+      buffer.length >= 8 &&
+      buffer[0] === 0x89 &&
+      buffer[1] === 0x50 &&
+      buffer[2] === 0x4e &&
+      buffer[3] === 0x47 &&
+      buffer[4] === 0x0d &&
+      buffer[5] === 0x0a &&
+      buffer[6] === 0x1a &&
+      buffer[7] === 0x0a
+    ) {
+      return { mimeType: 'image/png', ext: 'png' };
+    }
+    if (
+      buffer.length >= 12 &&
+      buffer[0] === 0x52 &&
+      buffer[1] === 0x49 &&
+      buffer[2] === 0x46 &&
+      buffer[3] === 0x46 &&
+      buffer[8] === 0x57 &&
+      buffer[9] === 0x45 &&
+      buffer[10] === 0x42 &&
+      buffer[11] === 0x50
+    ) {
+      return { mimeType: 'image/webp', ext: 'webp' };
+    }
+    return null;
+  }
+
+  private extractOwnedAvatarStoragePath(
+    publicUrl: string | null | undefined,
+    userId: string,
+  ): string | null {
+    const supabaseUrl = this.supabaseService.getSupabaseUrl();
+    if (!publicUrl || !supabaseUrl || !userId) {
+      return null;
+    }
+
+    const baseUrl = supabaseUrl.replace(/\/+$/, '');
+    const prefix = `${baseUrl}/storage/v1/object/public/${PROFILE_AVATAR_BUCKET}/`;
+    if (!publicUrl.startsWith(prefix)) {
+      return null;
+    }
+
+    const relativePath = decodeURIComponent(
+      publicUrl.slice(prefix.length).split('?')[0],
+    );
+    if (!relativePath.startsWith(`avatars/${userId}/`)) {
+      return null;
+    }
+    return relativePath;
+  }
+
+  async uploadAvatar(userId: string, base64Data: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        profile: true,
+        mentorProfile: true,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Utilisateur introuvable.');
+    }
+
+    const cleaned = base64Data.replace(/^data:image\/[a-z0-9.+-]+;base64,/i, '').trim();
+    if (!cleaned) {
+      throw new BadRequestException('Le fichier sélectionné est vide.');
+    }
+
+    const buffer = Buffer.from(cleaned, 'base64');
+    if (buffer.length === 0) {
+      throw new BadRequestException('Le fichier sélectionné est vide.');
+    }
+    if (buffer.length > MAX_AVATAR_BYTES) {
+      throw new BadRequestException('La photo ne doit pas dépasser 5 Mo.');
+    }
+
+    const detected = this.detectImageFormat(buffer);
+    if (!detected) {
+      throw new BadRequestException(
+        'Format non supporté. Veuillez choisir une image JPG, PNG ou WEBP.',
+      );
+    }
+
+    const storagePath = `avatars/${userId}/avatar-${Date.now()}.${detected.ext}`;
+    const publicUrl = await this.supabaseService.uploadFile(
+      PROFILE_AVATAR_BUCKET,
+      storagePath,
+      buffer,
+      detected.mimeType,
+    );
+
+    try {
+      await this.prisma.userProfile.upsert({
+        where: { userId },
+        create: {
+          userId,
+          photoUrl: publicUrl,
+          competences: [],
+          centresInteret: [],
+          objectifs: [],
+          langues: [],
+          isPublic: true,
+        },
+        update: {
+          photoUrl: publicUrl,
+        },
+      });
+
+      if (user.mentorProfile) {
+        await this.prisma.mentorProfile.update({
+          where: { userId },
+          data: { photoUrl: publicUrl },
+        });
+      }
+    } catch (err) {
+      await this.supabaseService.removeFile(PROFILE_AVATAR_BUCKET, storagePath);
+      throw err;
+    }
+
+    const oldPath = this.extractOwnedAvatarStoragePath(user.profile?.photoUrl, userId);
+    if (oldPath && oldPath !== storagePath) {
+      await this.supabaseService.removeFile(PROFILE_AVATAR_BUCKET, oldPath);
+    }
+
+    return {
+      photoUrl: publicUrl,
+      message: 'Photo de profil mise à jour avec succès.',
+    };
+  }
+
+  async deleteAvatar(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        profile: true,
+        mentorProfile: true,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Utilisateur introuvable.');
+    }
+
+    if (user.profile) {
+      await this.prisma.userProfile.update({
+        where: { userId },
+        data: { photoUrl: null },
+      });
+    }
+
+    if (user.mentorProfile) {
+      await this.prisma.mentorProfile.update({
+        where: { userId },
+        data: { photoUrl: null },
+      });
+    }
+
+    const oldPath = this.extractOwnedAvatarStoragePath(user.profile?.photoUrl, userId);
+    if (oldPath) {
+      await this.supabaseService.removeFile(PROFILE_AVATAR_BUCKET, oldPath);
+    }
+
+    return {
+      photoUrl: null,
+      message: 'Photo de profil supprimée.',
+    };
   }
 
   /**
