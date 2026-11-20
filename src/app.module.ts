@@ -9,6 +9,7 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { PrismaModule } from './core/database/prisma.module.js';
 import { SupabaseModule } from './core/supabase/supabase.module.js';
+import { MailModule } from './core/mail/mail.module.js';
 import { SupabaseAuthGuard } from './common/guards/supabase-auth.guard.js';
 import { RolesGuard } from './common/guards/roles.guard.js';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter.js';
@@ -51,9 +52,10 @@ import { AdminModule } from './modules/admin/admin.module.js';
     // Bus d'événements asynchrone (notifications internes)
     EventEmitterModule.forRoot(),
 
-    // Socle base de données Prisma et intégration Supabase
+    // Socle base de données Prisma et intégration Supabase / E-mail
     PrismaModule,
     SupabaseModule,
+    MailModule,
 
     // Modules Fonctionnels (F01 à F17)
     AuthModule,

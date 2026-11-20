@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { NotificationsService } from './notifications.service.js';
 import { PrismaService } from '../../core/database/prisma.service.js';
+import { MailService } from '../../core/mail/mail.service.js';
 import { NotificationType } from '../../generated/prisma/client.js';
 
 describe('NotificationsService', () => {
@@ -18,6 +19,13 @@ describe('NotificationsService', () => {
       updateMany: vi.fn(),
       delete: vi.fn(),
     },
+    user: {
+      findUnique: vi.fn(),
+    },
+  };
+
+  const mockMailService = {
+    sendNotificationEmail: vi.fn(),
   };
 
   beforeEach(async () => {
@@ -26,6 +34,7 @@ describe('NotificationsService', () => {
       providers: [
         NotificationsService,
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: MailService, useValue: mockMailService },
       ],
     }).compile();
 
@@ -77,5 +86,33 @@ describe('NotificationsService', () => {
         message: 'Message',
       }),
     ).resolves.toBeUndefined();
+  });
+
+  it('triggers non-blocking notification email when DEMANDE event is handled', async () => {
+    mockPrisma.notification.create.mockResolvedValue({ id: 'n2' });
+    mockPrisma.user.findUnique.mockResolvedValue({
+      email: 'mentor@example.com',
+      prenom: 'Awa',
+      nom: 'Diop',
+    });
+    mockMailService.sendNotificationEmail.mockRejectedValue(
+      new Error('SMTP timeout'),
+    );
+
+    await expect(
+      service.handleNotificationEvent({
+        userId: 'm1',
+        type: NotificationType.DEMANDE,
+        titre: 'Nouvelle demande',
+        message: 'Un mentoré vous sollicite.',
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(mockMailService.sendNotificationEmail).toHaveBeenCalledWith(
+      'mentor@example.com',
+      'Awa Diop',
+      'Nouvelle demande',
+      'Un mentoré vous sollicite.',
+    );
   });
 });

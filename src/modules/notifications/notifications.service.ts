@@ -3,13 +3,24 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { PrismaService } from '../../core/database/prisma.service.js';
-import type { NotificationType, Prisma } from '../../generated/prisma/client.js';
+import { MailService } from '../../core/mail/mail.service.js';
+import { NotificationType, type Prisma } from '../../generated/prisma/client.js';
 import type { ListNotificationsDto } from './dto/list-notifications.dto.js';
 
 export const NOTIFICATION_CREATE_EVENT = 'notification.create';
+
+const EMAIL_NOTIFICATION_TYPES = new Set<NotificationType>([
+  NotificationType.DEMANDE,
+  NotificationType.ACCEPTATION,
+  NotificationType.RENDEZ_VOUS,
+  NotificationType.MESSAGE,
+  NotificationType.MASTERCLASS,
+  NotificationType.SYSTEM,
+]);
 
 export interface CreateNotificationEvent {
   userId: string;
@@ -23,7 +34,10 @@ export interface CreateNotificationEvent {
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly mailService?: MailService,
+  ) {}
 
   async createNotification(payload: CreateNotificationEvent) {
     return this.prisma.notification.create({
@@ -45,6 +59,33 @@ export class NotificationsService {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn(
         `Échec asynchrone lors de la création de notification (${payload.type}) pour ${payload.userId}: ${message}`,
+      );
+      return;
+    }
+
+    if (!this.mailService || !EMAIL_NOTIFICATION_TYPES.has(payload.type)) {
+      return;
+    }
+
+    try {
+      const recipient = await this.prisma.user.findUnique({
+        where: { id: payload.userId },
+        select: { email: true, prenom: true, nom: true },
+      });
+
+      if (recipient?.email) {
+        const recipientName = `${recipient.prenom || ''} ${recipient.nom || ''}`.trim();
+        await this.mailService.sendNotificationEmail(
+          recipient.email,
+          recipientName,
+          payload.titre,
+          payload.message,
+        );
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `Échec non bloquant d'envoi e-mail (${payload.type}) pour ${payload.userId}: ${message}`,
       );
     }
   }
