@@ -3,7 +3,9 @@ import { ForbiddenException } from '@nestjs/common';
 import type { ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { RolesGuard } from './roles.guard.js';
-import { UserRole } from '../../generated/prisma/client.js';
+import { ROLES_KEY } from '../decorators/roles.decorator.js';
+import { REQUIRE_ACTIVE_ACCOUNT_KEY } from '../decorators/require-active-account.decorator.js';
+import { AccountStatus, UserRole } from '../../generated/prisma/client.js';
 
 describe('RolesGuard', () => {
   let guard: RolesGuard;
@@ -11,7 +13,7 @@ describe('RolesGuard', () => {
     getAllAndOverride: vi.fn(),
   };
 
-  function createContext(user?: { role?: UserRole }) {
+  function createContext(user?: { role?: UserRole; statutCompte?: AccountStatus }) {
     return {
       getHandler: () => ({}),
       getClass: () => ({}),
@@ -46,5 +48,31 @@ describe('RolesGuard', () => {
   it('allows ADMIN regardless of required roles', () => {
     mockReflector.getAllAndOverride.mockReturnValue([UserRole.MENTOR]);
     expect(guard.canActivate(createContext({ role: UserRole.ADMIN }))).toBe(true);
+  });
+
+  it('blocks PENDING PARTENAIRE or EXPERT when @RequireActiveAccount is set', () => {
+    mockReflector.getAllAndOverride.mockImplementation((key: string) => {
+      if (key === ROLES_KEY) return [UserRole.ADMIN, UserRole.PARTENAIRE];
+      if (key === REQUIRE_ACTIVE_ACCOUNT_KEY) return true;
+      return undefined;
+    });
+
+    expect(() =>
+      guard.canActivate(
+        createContext({
+          role: UserRole.PARTENAIRE,
+          statutCompte: AccountStatus.PENDING,
+        }),
+      ),
+    ).toThrow(ForbiddenException);
+
+    expect(
+      guard.canActivate(
+        createContext({
+          role: UserRole.PARTENAIRE,
+          statutCompte: AccountStatus.ACTIVE,
+        }),
+      ),
+    ).toBe(true);
   });
 });

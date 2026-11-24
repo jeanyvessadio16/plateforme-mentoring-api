@@ -285,4 +285,42 @@ describe('AuthService', () => {
     });
     expect(result.session?.accessToken).toBe('acc-hash');
   });
+
+  it('passes emailRedirectTo pointing to /auth/callback during standard signUp', async () => {
+    mockConfigService.get.mockImplementation((key: string) => {
+      if (key === 'FRONTEND_URL') return 'https://acceent-mentoring.vercel.app/';
+      return 'false';
+    });
+    mockPrisma.user.findUnique.mockResolvedValue(null);
+    mockSignUp.mockResolvedValue({
+      data: { user: { id: 'sub-redirect-1' }, session: null },
+      error: null,
+    });
+    mockPrisma.user.create.mockResolvedValue({
+      id: 'u-redirect-1',
+      role: UserRole.BENEFICIAIRE,
+      statutCompte: AccountStatus.ACTIVE,
+      diagnostic: null,
+    });
+
+    await service.register({
+      email: 'redirect@example.com',
+      password: 'Password123!',
+      nom: 'Sarr',
+      prenom: 'Moussa',
+      pays: 'Sénégal',
+      role: UserRole.BENEFICIAIRE,
+      consentCgu: true,
+      consentData: true,
+    });
+
+    expect(mockSignUp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: 'redirect@example.com',
+        options: expect.objectContaining({
+          emailRedirectTo: 'https://acceent-mentoring.vercel.app/auth/callback',
+        }),
+      }),
+    );
+  });
 });

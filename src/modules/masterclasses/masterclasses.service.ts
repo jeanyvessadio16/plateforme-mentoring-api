@@ -8,6 +8,7 @@ import {
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../core/database/prisma.service.js';
 import {
+  AccountStatus,
   MasterclassStatus,
   NotificationType,
   UserRole,
@@ -105,7 +106,12 @@ export class MasterclassesService {
     return masterclass;
   }
 
-  async getAccessLinks(id: string, userId: string, userRole: UserRole) {
+  async getAccessLinks(
+    id: string,
+    userId: string,
+    userRole: UserRole,
+    statutCompte: AccountStatus = AccountStatus.ACTIVE,
+  ) {
     const masterclass = await this.prisma.masterclass.findUnique({
       where: { id },
       select: {
@@ -121,7 +127,11 @@ export class MasterclassesService {
       throw new NotFoundException('Masterclass introuvable.');
     }
 
-    if (userRole !== UserRole.ADMIN && userRole !== UserRole.EXPERT) {
+    const canBypassRegistration =
+      userRole === UserRole.ADMIN ||
+      (userRole === UserRole.EXPERT && statutCompte === AccountStatus.ACTIVE);
+
+    if (!canBypassRegistration) {
       const registration = await this.prisma.masterclassRegistration.findUnique({
         where: {
           masterclassId_userId: { masterclassId: id, userId },

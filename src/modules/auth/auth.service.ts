@@ -121,6 +121,18 @@ export class AuthService {
     return buffer;
   }
 
+  private resolveEmailRedirectTo(explicitUrl?: string): string {
+    if (explicitUrl && /^https?:\/\//i.test(explicitUrl.trim())) {
+      return explicitUrl.trim();
+    }
+    const configuredFrontend = this.configService.get<string>('FRONTEND_URL')?.trim();
+    const baseUrl =
+      configuredFrontend && /^https?:\/\//i.test(configuredFrontend)
+        ? configuredFrontend.replace(/\/+$/, '')
+        : 'https://acceent-mentoring.vercel.app';
+    return `${baseUrl}/auth/callback`;
+  }
+
   /**
    * F01 - Inscription d'un nouvel utilisateur (auth/register)
    */
@@ -189,10 +201,12 @@ export class AuthService {
       supabaseUid = adminCreated.user.id;
     } else {
       // Inscription standard envoyant un e-mail de confirmation
+      const emailRedirectTo = this.resolveEmailRedirectTo(dto.emailRedirectTo);
       const { data: signedUp, error: signUpErr } = await publicClient.auth.signUp({
         email: dto.email,
         password: dto.password,
         options: {
+          emailRedirectTo,
           data: {
             nom: dto.nom,
             prenom: dto.prenom,

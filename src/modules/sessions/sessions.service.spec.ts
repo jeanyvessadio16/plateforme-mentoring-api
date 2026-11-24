@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { SessionsService } from './sessions.service.js';
 import { PrismaService } from '../../core/database/prisma.service.js';
@@ -17,7 +17,12 @@ describe('SessionsService', () => {
   const mockPrisma = {
     mentorProfile: { findFirst: vi.fn(), findUnique: vi.fn() },
     availabilitySlot: { findUnique: vi.fn(), create: vi.fn(), findMany: vi.fn() },
-    mentorshipSession: { findFirst: vi.fn(), findUnique: vi.fn(), findMany: vi.fn() },
+    mentorshipSession: {
+      findFirst: vi.fn(),
+      findUnique: vi.fn(),
+      findMany: vi.fn(),
+      update: vi.fn(),
+    },
     notification: { findMany: vi.fn() },
     user: { findUnique: vi.fn() },
     $transaction: vi.fn(async (cb: (tx: typeof mockTx) => unknown) => cb(mockTx)),
@@ -144,5 +149,44 @@ describe('SessionsService', () => {
         data: { sessionId: 'sess-rem-1', reminder: '24h' },
       }),
     );
+  });
+
+  it('prevents mentor from overwriting session rating while allowing mentee rating', async () => {
+    mockPrisma.mentorshipSession.findUnique.mockResolvedValue({
+      id: 'sess-fb-1',
+      titre: 'Point carrière',
+      mentorId: 'mentor-1',
+      menteeId: 'mentee-1',
+      status: SessionStatus.COMPLETED,
+      mentor: { id: 'mentor-1', nom: 'Diallo', prenom: 'Awa' },
+      mentee: { id: 'mentee-1', nom: 'Ndiaye', prenom: 'Ibrahima' },
+      program: null,
+      slot: null,
+    });
+    mockPrisma.mentorshipSession.update.mockResolvedValue({ id: 'sess-fb-1', rating: 5 });
+
+    await expect(
+      service.submitFeedback('mentor-1', UserRole.MENTOR, 'sess-fb-1', {
+        feedback: 'Très bonne progression',
+        rating: 5,
+      }),
+    ).rejects.toThrow(ForbiddenException);
+
+    await service.submitFeedback('mentor-1', UserRole.MENTOR, 'sess-fb-1', {
+      feedback: 'Très bonne progression',
+    });
+    expect(mockPrisma.mentorshipSession.update).toHaveBeenCalledWith({
+      where: { id: 'sess-fb-1' },
+      data: { feedbackMentor: 'Très bonne progression' },
+    });
+
+    await service.submitFeedback('mentee-1', UserRole.BENEFICIAIRE, 'sess-fb-1', {
+      feedback: 'Séance très utile',
+      rating: 5,
+    });
+    expect(mockPrisma.mentorshipSession.update).toHaveBeenLastCalledWith({
+      where: { id: 'sess-fb-1' },
+      data: { feedbackMentee: 'Séance très utile', rating: 5 },
+    });
   });
 });

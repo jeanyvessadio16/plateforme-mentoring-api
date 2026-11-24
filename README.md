@@ -1,132 +1,126 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# ACCEENT Mentoring — API Backend (`mentoring-platform-api`)
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+API RESTful officielle du MVP de la plateforme digitale de mentoring, compétences, réseaux et opportunités **ACCEENT Mentoring**.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## 1. Stack technique
 
-## Description
+- **Runtime & Framework** : Node.js (ESM), TypeScript 6, NestJS 12 (`@nestjs/platform-express`)
+- **ORM & Base de données** : Prisma ORM 7 (`@prisma/adapter-pg`) sur PostgreSQL (Supabase)
+- **Authentification & Stockage** : Supabase Auth (validation asymétrique JWKS via `jose`) & Supabase Storage
+- **Notifications & E-mail** : `@nestjs/event-emitter`, `@nestjs/schedule` (tâches Cron), Resend + repli SMTP Nodemailer
+- **Exports & Rapports** : `csv-stringify`, `exceljs` (`.xlsx`), `pdfkit` (`.pdf`)
+- **Documentation API** : OpenAPI / Swagger (`/api/docs`)
+- **Qualité & Tests** : `oxlint --type-aware`, Vitest 4 & Supertest
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+---
 
-## Project setup
+## 2. Architecture du projet
 
-```bash
-$ pnpm install
+```text
+src/
+  common/
+    decorators/     # @Public, @AllowUnregistered, @Roles, @RequireActiveAccount, @CurrentUser
+    filters/        # AllExceptionsFilter (HTTP + codes Prisma P2002/P2025/P2003)
+    guards/         # SupabaseAuthGuard (JWT JWKS + statut compte), RolesGuard
+    interceptors/   # LoggingInterceptor
+  core/
+    database/       # PrismaModule & PrismaService
+    supabase/       # SupabaseModule & SupabaseService (Auth + Storage public/privé signé)
+    mail/           # MailModule & MailService (Resend + fallback SMTP)
+  modules/
+    auth/           # F01 — Inscription, connexion, OTP/callback, refresh, mot de passe
+    users/          # F02 — Profil utilisateur, avatar, profil public, export & oubli RGPD
+    mentors/        # F03 & F06 — Candidature mentor, disponibilité, catalogue filtrable
+    diagnostic/     # F04 — Questionnaire de diagnostic & profil de besoin
+    matching/       # F05 — Moteur multicritère pondéré (6 critères) & filtres
+    mentoring/      # F07 & F08 — Demandes, parcours, objectifs, tâches, ressources, rappels J-1
+    sessions/       # F09 — Créneaux de disponibilité, sessions, anti-chevauchement, rappels 24h
+    messaging/      # F10 — Conversations autorisées, messages, pièces jointes privées signées
+    masterclasses/  # F11 — Catalogue, inscriptions, liens live/replay protégés, présences
+    opportunities/  # F12 — Hub d'opportunités (8 catégories), favoris, archivage auto Cron
+    dashboards/     # F13 & F14 — Tableaux de bord bénéficiaire, mentor, expert, partenaire
+    notifications/  # F15 — Notifications in-app et e-mails transactionnels
+    admin/          # F16 & F17 — Modération, validations CV signé, rôles, KPIs, exports CSV/XLSX/PDF
+prisma/
+  schema.prisma     # Modèle de données PostgreSQL
+  migrations/       # Migrations SQL versionnées
+test/
+  app.e2e-spec.ts   # Tests E2E HTTP & contrat OpenAPI
 ```
 
-## Compile and run the project
+---
+
+## 3. Configuration de l'environnement
+
+Copier `.env.example` vers `.env` et renseigner les valeurs propres à l'environnement :
 
 ```bash
-# development
-$ pnpm run start
-
-# watch mode
-$ pnpm run start:dev
-
-# production mode
-$ pnpm run start:prod
+cp .env.example .env
 ```
 
-## Run tests
+Principales variables :
+- `PORT` : port HTTP d'écoute (défaut `3001`).
+- `CORS_ORIGIN` : origines frontales autorisées séparées par des virgules.
+- `FRONTEND_URL` : URL de base du frontend utilisée pour les liens de confirmation e-mail (`/auth/callback`).
+- `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`, `SUPABASE_JWKS_URL` : configuration Supabase Auth & Storage.
+- `DATABASE_URL`, `DIRECT_URL` : chaînes de connexion PostgreSQL (pooler transactionnel + session directe pour Prisma CLI).
+- `RESEND_API_KEY`, `MAIL_FROM` (et optionnellement `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`).
+
+Buckets Supabase Storage attendus :
+- `plateforme-images` (public) : photos de profil (`avatars/<userId>/...`).
+- `mentor-documents` (privé) : CV mentors (`cvs/<userId>/...`) et pièces jointes de messagerie (`messages/<conversationId>/...`) servis par URL signées temporaires.
+
+---
+
+## 4. Installation, Base de données & Démarrage
 
 ```bash
-# unit tests
-$ pnpm run test
+# Installation des dépendances (génère automatiquement le client Prisma en postinstall)
+pnpm install
 
-# e2e tests
-$ pnpm run test:e2e
+# Appliquer les migrations sur une nouvelle base PostgreSQL
+npx prisma migrate deploy
 
-# test coverage
-$ pnpm run test:cov
+# Note : si la base Supabase existante a déjà été initialisée avant le versionnement :
+# npx prisma migrate resolve --applied 20260101000000_init
+
+# Démarrage en développement (watch)
+pnpm run start:dev
+
+# Build et démarrage en production (ex: Render)
+pnpm run build
+pnpm run start
 ```
 
-## Deployment
+Une fois démarrée :
+- **Racine / Healthcheck** : `GET /` et `GET /api/v1/health`
+- **Préfixe REST** : `/api/v1`
+- **Documentation Swagger** : `/api/docs`
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+---
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+## 5. Sécurité & Conformité RGPD
+
+- **Validation stricte** : `ValidationPipe` global (`whitelist: true`, `forbidNonWhitelisted: true`, `transform: true`).
+- **Authentification & Statuts** : vérification JWT asymétrique via JWKS ; rejet automatique des comptes `SUSPENDED` / `REJECTED` ; blocage des comptes en attente (`PENDING`) sur les opérations réservées aux partenaires, experts et mentors validés (`@RequireActiveAccount()`).
+- **Anti-bruteforce** : `ThrottlerGuard` global (`100 req/min`) et limites dédiées sur `/auth/register`, `/auth/login`, `/auth/forgot-password` et `/auth/verify-otp`.
+- **Sécurité des fichiers** : validation binaire par *magic bytes* (`PDF`, `JPG`, `PNG`, `WEBP`) et plafond à `5 Mo`.
+- **Protection des données (RGPD)** : consentements obligatoires (`consentCgu`, `consentData`), confidentialité des données sensibles (`situationHandicap` jamais exposée publiquement), export personnel (`GET /api/v1/users/me/export`) et suppression intégrale (`DELETE /api/v1/users/me`).
+
+---
+
+## 6. Vérifications & Tests
 
 ```bash
-$ pnpm install -g @nestjs/mau
-$ mau deploy
+# Analyse statique typée (oxlint + tsgolint)
+pnpm run lint
+
+# Tests unitaires (Vitest)
+pnpm test
+
+# Tests End-to-End HTTP & surface OpenAPI
+pnpm run test:e2e
+
+# Compilation de production
+pnpm run build
 ```
-
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
-
-## Observability
-
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
-
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
-
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
-
-To add it to this project, run this and approve the code it prints at [observe.nestjs.com/link](https://observe.nestjs.com/link) - signing up for free if you have no account:
-
-```bash
-$ npx @nestjs/observe link
-```
-
-It installs `@nestjs/observe`, wires it into `AppModule` and `main.ts`, and writes the app key and secret into `.env`, which every `nest start` script (`start`, `start:dev`, `start:debug`) then loads. In production, set `OBSERVE_APP_KEY` and `OBSERVE_APP_SECRET` in the environment instead.
-
-Or do it by hand:
-
-```bash
-$ pnpm install @nestjs/observe
-```
-
-Then follow the [setup guide](https://docs.nestjs.com/observability/sdk) - it takes a single import and an app key.
-
-The free plan needs no payment details and covers 300,000 events a month. You can also browse the [live demo](https://www.observe-demo.nestjs.com/dashboard) first - the whole dashboard over a busy service's data, with nothing to install.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observe](https://observe.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).

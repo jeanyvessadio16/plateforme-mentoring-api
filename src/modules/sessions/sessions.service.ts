@@ -543,6 +543,16 @@ export class SessionsService {
       );
     }
 
+    if (
+      dto.rating !== undefined &&
+      userId !== session.menteeId &&
+      userRole !== UserRole.ADMIN
+    ) {
+      throw new ForbiddenException(
+        'Seul le bénéficiaire accompagné peut attribuer une note de satisfaction à la session.',
+      );
+    }
+
     const data: Prisma.MentorshipSessionUpdateInput = {};
     if (userId === session.mentorId && dto.feedback !== undefined) {
       data.feedbackMentor = dto.feedback;

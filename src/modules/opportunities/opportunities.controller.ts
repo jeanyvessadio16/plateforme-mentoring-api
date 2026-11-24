@@ -15,6 +15,7 @@ import {
 } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
 import { Public } from '../../common/decorators/public.decorator.js';
+import { RequireActiveAccount } from '../../common/decorators/require-active-account.decorator.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { UserRole } from '../../generated/prisma/client.js';
 import { OpportunitiesService } from './opportunities.service.js';
@@ -67,22 +68,25 @@ export class OpportunitiesController {
   }
 
   @Roles(UserRole.ADMIN, UserRole.PARTENAIRE)
+  @RequireActiveAccount()
   @Post()
-  @ApiOperation({ summary: 'F12 - Publier une opportunité (Admin / Partenaire)' })
+  @ApiOperation({ summary: 'F12 - Publier une opportunité (Admin / Partenaire validé)' })
   async create(@Body() dto: CreateOpportunityDto) {
     return this.opportunitiesService.create(dto);
   }
 
   @Roles(UserRole.ADMIN, UserRole.PARTENAIRE)
+  @RequireActiveAccount()
   @Patch(':id')
-  @ApiOperation({ summary: 'F12 - Mettre à jour une opportunité (Admin / Partenaire)' })
+  @ApiOperation({ summary: 'F12 - Mettre à jour une opportunité (Admin / Partenaire validé)' })
   async update(@Param('id') id: string, @Body() dto: UpdateOpportunityDto) {
     return this.opportunitiesService.update(id, dto);
   }
 
   @Roles(UserRole.ADMIN, UserRole.PARTENAIRE)
+  @RequireActiveAccount()
   @Delete(':id')
-  @ApiOperation({ summary: 'F12 - Supprimer une opportunité (Admin / Partenaire)' })
+  @ApiOperation({ summary: 'F12 - Supprimer une opportunité (Admin / Partenaire validé)' })
   async remove(@Param('id') id: string) {
     return this.opportunitiesService.remove(id);
   }

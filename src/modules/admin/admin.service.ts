@@ -565,7 +565,9 @@ export class AdminService {
             pays: metaString(meta.country),
             role,
             statutCompte:
-              role === UserRole.MENTOR ? AccountStatus.PENDING : AccountStatus.ACTIVE,
+              role === UserRole.BENEFICIAIRE || role === UserRole.ADMIN
+                ? AccountStatus.ACTIVE
+                : AccountStatus.PENDING,
             sexe,
             milieuResidence,
             situationHandicap: meta.sdh === 'Oui' || meta.sdh === true,

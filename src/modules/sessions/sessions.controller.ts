@@ -16,6 +16,7 @@ import {
 } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
 import { Public } from '../../common/decorators/public.decorator.js';
+import { RequireActiveAccount } from '../../common/decorators/require-active-account.decorator.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { UserRole } from '../../generated/prisma/client.js';
 import { SessionsService } from './sessions.service.js';
@@ -38,8 +39,9 @@ export class SessionsController {
   // ==========================================
 
   @Roles(UserRole.MENTOR, UserRole.EXPERT, UserRole.ADMIN)
+  @RequireActiveAccount()
   @Post('slots')
-  @ApiOperation({ summary: 'F09 - Créer un créneau de disponibilité mentor/expert' })
+  @ApiOperation({ summary: 'F09 - Créer un créneau de disponibilité mentor/expert validé' })
   async createSlot(
     @CurrentUser('id') userId: string,
     @Body() dto: CreateSlotDto,

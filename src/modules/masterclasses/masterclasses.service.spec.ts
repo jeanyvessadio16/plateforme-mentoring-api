@@ -4,7 +4,7 @@ import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { MasterclassesService } from './masterclasses.service.js';
 import { PrismaService } from '../../core/database/prisma.service.js';
-import { MasterclassStatus, UserRole } from '../../generated/prisma/client.js';
+import { AccountStatus, MasterclassStatus, UserRole } from '../../generated/prisma/client.js';
 
 describe('MasterclassesService', () => {
   let service: MasterclassesService;
@@ -74,5 +74,20 @@ describe('MasterclassesService', () => {
     mockPrisma.masterclassRegistration.findUnique.mockResolvedValue(null);
 
     await expect(service.register('mc1', 'u1')).rejects.toThrow(ConflictException);
+  });
+
+  it('denies live/replay link bypass to unvalidated PENDING expert', async () => {
+    mockPrisma.masterclass.findUnique.mockResolvedValue({
+      id: 'mc1',
+      titre: 'Pitch',
+      statut: MasterclassStatus.UPCOMING,
+      lienLive: 'https://meet.example.com/123',
+      lienReplay: null,
+    });
+    mockPrisma.masterclassRegistration.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.getAccessLinks('mc1', 'exp-pending', UserRole.EXPERT, AccountStatus.PENDING),
+    ).rejects.toThrow(ForbiddenException);
   });
 });

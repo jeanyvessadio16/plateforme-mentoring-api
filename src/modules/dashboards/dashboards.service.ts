@@ -487,7 +487,9 @@ export class DashboardsService {
     ).length;
     const pendingValidations = allUsers.filter(
       (u) =>
-        (u.role === UserRole.MENTOR || u.role === UserRole.EXPERT) &&
+        (u.role === UserRole.MENTOR ||
+          u.role === UserRole.EXPERT ||
+          u.role === UserRole.PARTENAIRE) &&
         u.statutCompte === AccountStatus.PENDING,
     ).length;
 

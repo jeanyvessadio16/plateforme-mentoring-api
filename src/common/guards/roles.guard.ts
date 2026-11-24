@@ -6,7 +6,8 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ROLES_KEY } from '../decorators/roles.decorator.js';
-import { UserRole } from '../../generated/prisma/client.js';
+import { REQUIRE_ACTIVE_ACCOUNT_KEY } from '../decorators/require-active-account.decorator.js';
+import { AccountStatus, UserRole } from '../../generated/prisma/client.js';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -17,8 +18,15 @@ export class RolesGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
+    const requireActiveAccount = this.reflector.getAllAndOverride<boolean>(
+      REQUIRE_ACTIVE_ACCOUNT_KEY,
+      [context.getHandler(), context.getClass()],
+    );
 
-    if (!requiredRoles || requiredRoles.length === 0) {
+    const hasRoles = Boolean(requiredRoles && requiredRoles.length > 0);
+    const mustBeActive = requireActiveAccount === true;
+
+    if (!hasRoles && !mustBeActive) {
       return true;
     }
 
@@ -33,10 +41,18 @@ export class RolesGuard implements CanActivate {
       return true;
     }
 
-    const hasRole = requiredRoles.includes(user.role);
-    if (!hasRole) {
+    if (requiredRoles && requiredRoles.length > 0) {
+      const hasRole = requiredRoles.includes(user.role);
+      if (!hasRole) {
+        throw new ForbiddenException(
+          `Accès refusé : vous devez avoir l'un des rôles suivants : [${requiredRoles.join(', ')}]`,
+        );
+      }
+    }
+
+    if (mustBeActive && user.statutCompte !== AccountStatus.ACTIVE) {
       throw new ForbiddenException(
-        `Accès refusé : vous devez avoir l'un des rôles suivants : [${requiredRoles.join(', ')}]`,
+        'Accès refusé : votre compte est en attente de validation administrative.',
       );
     }
 

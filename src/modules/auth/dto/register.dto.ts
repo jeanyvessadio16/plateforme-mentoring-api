@@ -9,6 +9,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUrl,
   Max,
   Min,
   MinLength,
@@ -188,4 +189,15 @@ export class RegisterDto {
   @IsString()
   @IsOptional()
   cvBase64?: string;
+
+  @ApiPropertyOptional({
+    description: 'URL de redirection après confirmation de l’adresse e-mail',
+    example: 'https://acceent-mentoring.vercel.app/auth/callback',
+  })
+  @IsUrl(
+    { protocols: ['http', 'https'], require_protocol: true, require_tld: false },
+    { message: 'URL de redirection invalide.' },
+  )
+  @IsOptional()
+  emailRedirectTo?: string;
 }
