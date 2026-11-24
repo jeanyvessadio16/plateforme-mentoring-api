@@ -1,11 +1,15 @@
+import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  InternalServerErrorException,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../core/database/prisma.service.js';
+import { SupabaseService } from '../../core/supabase/supabase.service.js';
 import {
   NotificationType,
   RequestStatus,
@@ -17,12 +21,17 @@ import {
 } from '../notifications/notifications.service.js';
 import type { SendMessageDto } from './dto/send-message.dto.js';
 import type { ListMessagesDto } from './dto/list-messages.dto.js';
+import type { UploadAttachmentDto } from './dto/upload-attachment.dto.js';
+
+const ATTACHMENT_BUCKET = 'mentor-documents';
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 
 @Injectable()
 export class MessagingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
+    @Optional() private readonly supabaseService?: SupabaseService,
   ) {}
 
   private emitNotification(payload: CreateNotificationEvent): void {
@@ -209,6 +218,162 @@ export class MessagingService {
     });
   }
 
+  private detectAllowedAttachment(
+    buffer: Buffer,
+  ): { mimeType: string; ext: string } | null {
+    if (
+      buffer.length >= 5 &&
+      buffer[0] === 0x25 &&
+      buffer[1] === 0x50 &&
+      buffer[2] === 0x44 &&
+      buffer[3] === 0x46 &&
+      buffer[4] === 0x2d
+    ) {
+      return { mimeType: 'application/pdf', ext: 'pdf' };
+    }
+    if (
+      buffer.length >= 3 &&
+      buffer[0] === 0xff &&
+      buffer[1] === 0xd8 &&
+      buffer[2] === 0xff
+    ) {
+      return { mimeType: 'image/jpeg', ext: 'jpg' };
+    }
+    if (
+      buffer.length >= 8 &&
+      buffer[0] === 0x89 &&
+      buffer[1] === 0x50 &&
+      buffer[2] === 0x4e &&
+      buffer[3] === 0x47 &&
+      buffer[4] === 0x0d &&
+      buffer[5] === 0x0a &&
+      buffer[6] === 0x1a &&
+      buffer[7] === 0x0a
+    ) {
+      return { mimeType: 'image/png', ext: 'png' };
+    }
+    if (
+      buffer.length >= 12 &&
+      buffer[0] === 0x52 &&
+      buffer[1] === 0x49 &&
+      buffer[2] === 0x46 &&
+      buffer[3] === 0x46 &&
+      buffer[8] === 0x57 &&
+      buffer[9] === 0x45 &&
+      buffer[10] === 0x42 &&
+      buffer[11] === 0x50
+    ) {
+      return { mimeType: 'image/webp', ext: 'webp' };
+    }
+    return null;
+  }
+
+  private async refreshAttachmentUrls<
+    T extends { attachments?: Array<{ fileUrl: string }> },
+  >(conversationId: string, messages: T[]): Promise<T[]> {
+    if (!this.supabaseService || messages.length === 0) {
+      return messages;
+    }
+
+    const marker = `/storage/v1/object/sign/${ATTACHMENT_BUCKET}/`;
+    const expectedPrefix = `messages/${conversationId}/`;
+
+    return Promise.all(
+      messages.map(async (msg) => {
+        if (!msg.attachments?.length) {
+          return msg;
+        }
+
+        const updatedAttachments = await Promise.all(
+          msg.attachments.map(async (att) => {
+            const markerIndex = att.fileUrl.indexOf(marker);
+            if (markerIndex === -1) {
+              return att;
+            }
+            const rawPath = decodeURIComponent(
+              att.fileUrl.slice(markerIndex + marker.length).split('?')[0],
+            );
+            if (!rawPath.startsWith(expectedPrefix)) {
+              return att;
+            }
+            const freshUrl = await this.supabaseService!.createSignedUrl(
+              ATTACHMENT_BUCKET,
+              rawPath,
+              3600,
+            );
+            return freshUrl ? { ...att, fileUrl: freshUrl } : att;
+          }),
+        );
+
+        return { ...msg, attachments: updatedAttachments };
+      }),
+    );
+  }
+
+  async uploadAttachment(
+    userId: string,
+    conversationId: string,
+    dto: UploadAttachmentDto,
+  ) {
+    await this.getParticipantConversation(userId, conversationId);
+
+    if (!this.supabaseService) {
+      throw new InternalServerErrorException(
+        'Le service de stockage des pièces jointes est indisponible.',
+      );
+    }
+
+    const cleaned = dto.base64Data
+      .replace(/^data:[^;]+;base64,/i, '')
+      .trim();
+    if (!cleaned) {
+      throw new BadRequestException('Le fichier sélectionné est vide.');
+    }
+
+    const buffer = Buffer.from(cleaned, 'base64');
+    if (buffer.length === 0) {
+      throw new BadRequestException('Le fichier sélectionné est vide.');
+    }
+    if (buffer.length > MAX_ATTACHMENT_BYTES) {
+      throw new BadRequestException('La pièce jointe ne doit pas dépasser 5 Mo.');
+    }
+
+    const detected = this.detectAllowedAttachment(buffer);
+    if (!detected) {
+      throw new BadRequestException(
+        'Formats acceptés : PDF, JPG, PNG ou WEBP.',
+      );
+    }
+
+    const storagePath = `messages/${conversationId}/${randomUUID()}.${detected.ext}`;
+    await this.supabaseService.uploadPrivateFile(
+      ATTACHMENT_BUCKET,
+      storagePath,
+      buffer,
+      detected.mimeType,
+    );
+
+    const signedUrl = await this.supabaseService.createSignedUrl(
+      ATTACHMENT_BUCKET,
+      storagePath,
+      7 * 24 * 3600,
+    );
+
+    if (!signedUrl) {
+      await this.supabaseService.removeFile(ATTACHMENT_BUCKET, storagePath);
+      throw new InternalServerErrorException(
+        'Impossible de générer le lien sécurisé de la pièce jointe.',
+      );
+    }
+
+    return {
+      fileName: dto.fileName.trim(),
+      fileUrl: signedUrl,
+      fileSize: buffer.length,
+      mimeType: detected.mimeType,
+    };
+  }
+
   async getMessages(userId: string, conversationId: string, query: ListMessagesDto) {
     await this.getParticipantConversation(userId, conversationId);
 
@@ -216,7 +381,7 @@ export class MessagingService {
     const limit = query.limit || 30;
     const skip = (page - 1) * limit;
 
-    const [total, data] = await Promise.all([
+    const [total, rawData] = await Promise.all([
       this.prisma.message.count({ where: { conversationId } }),
       this.prisma.message.findMany({
         where: { conversationId },
@@ -229,6 +394,8 @@ export class MessagingService {
         take: limit,
       }),
     ]);
+
+    const data = await this.refreshAttachmentUrls(conversationId, rawData);
 
     return {
       data,

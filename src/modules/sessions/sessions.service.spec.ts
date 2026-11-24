@@ -4,7 +4,7 @@ import { ConflictException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { SessionsService } from './sessions.service.js';
 import { PrismaService } from '../../core/database/prisma.service.js';
-import { AccountStatus, SessionStatus, UserRole } from '../../generated/prisma/client.js';
+import { AccountStatus, NotificationType, SessionStatus, UserRole } from '../../generated/prisma/client.js';
 
 describe('SessionsService', () => {
   let service: SessionsService;
@@ -17,7 +17,8 @@ describe('SessionsService', () => {
   const mockPrisma = {
     mentorProfile: { findFirst: vi.fn(), findUnique: vi.fn() },
     availabilitySlot: { findUnique: vi.fn(), create: vi.fn(), findMany: vi.fn() },
-    mentorshipSession: { findFirst: vi.fn(), findUnique: vi.fn() },
+    mentorshipSession: { findFirst: vi.fn(), findUnique: vi.fn(), findMany: vi.fn() },
+    notification: { findMany: vi.fn() },
     user: { findUnique: vi.fn() },
     $transaction: vi.fn(async (cb: (tx: typeof mockTx) => unknown) => cb(mockTx)),
   };
@@ -112,5 +113,36 @@ describe('SessionsService', () => {
       where: { id: 'slot-1' },
       data: { isActive: true },
     });
+  });
+
+  it('sends 24h reminders to both participants once and deduplicates existing reminders (F09/F15)', async () => {
+    const inTwoHours = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    mockPrisma.mentorshipSession.findMany.mockResolvedValue([
+      {
+        id: 'sess-rem-1',
+        mentorId: 'mentor-1',
+        menteeId: 'mentee-1',
+        titre: 'Atelier business plan',
+        dateDebut: inTwoHours,
+        mentor: { id: 'mentor-1', nom: 'Diallo', prenom: 'Awa' },
+        mentee: { id: 'mentee-1', nom: 'Ndiaye', prenom: 'Ibrahima' },
+      },
+    ]);
+    mockPrisma.notification.findMany.mockResolvedValue([
+      { userId: 'mentor-1', data: { sessionId: 'sess-rem-1', reminder: '24h' } },
+    ]);
+
+    const emittedCount = await service.sendUpcomingSessionReminders();
+
+    expect(emittedCount).toBe(1);
+    expect(mockEmitter.emit).toHaveBeenCalledTimes(1);
+    expect(mockEmitter.emit).toHaveBeenCalledWith(
+      'notification.create',
+      expect.objectContaining({
+        userId: 'mentee-1',
+        type: NotificationType.ECHEANCE,
+        data: { sessionId: 'sess-rem-1', reminder: '24h' },
+      }),
+    );
   });
 });

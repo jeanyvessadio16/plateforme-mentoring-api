@@ -221,6 +221,28 @@ export class MentorsService {
     });
   }
 
+  private normalizeLanguage(lang: string): string {
+    const normalized = lang.trim().toLowerCase();
+    const aliasMap: Record<string, string> = {
+      fr: 'fr',
+      français: 'fr',
+      francais: 'fr',
+      french: 'fr',
+      en: 'en',
+      anglais: 'en',
+      english: 'en',
+      wo: 'wo',
+      wolof: 'wo',
+      ar: 'ar',
+      arabe: 'ar',
+      arabic: 'ar',
+      pt: 'pt',
+      portugais: 'pt',
+      portuguese: 'pt',
+    };
+    return aliasMap[normalized] ?? normalized;
+  }
+
   /**
    * Moteur de recherche et catalogue des mentors validés (F06)
    * Règle métier : seuls les mentors avec statutValidation: ACTIVE et isAvailable: true sont visibles.
@@ -234,18 +256,6 @@ export class MentorsService {
       statutValidation: AccountStatus.ACTIVE,
       isAvailable: true,
     };
-
-    if (filter.expertise) {
-      where.expertises = { has: filter.expertise };
-    }
-
-    if (filter.secteur) {
-      where.secteurs = { has: filter.secteur };
-    }
-
-    if (filter.langue) {
-      where.langues = { has: filter.langue };
-    }
 
     if (filter.typesMentoring) {
       where.typesMentoring = filter.typesMentoring;
@@ -291,18 +301,82 @@ export class MentorsService {
       where.disponibilites = { contains: filter.disponibilite, mode: 'insensitive' };
     }
 
-    const [total, mentors] = await Promise.all([
-      this.prisma.mentorProfile.count({ where }),
-      this.prisma.mentorProfile.findMany({
-        where,
-        skip,
-        take: limit,
-        select: this.PUBLIC_MENTOR_SELECT,
-        orderBy: {
-          anneesExperience: 'desc',
+    const expertiseNeedle = filter.expertise?.trim().toLowerCase() || '';
+    const secteurNeedle = filter.secteur?.trim().toLowerCase() || '';
+    const langueRaw = filter.langue?.trim() || '';
+    const langueNeedle = langueRaw.toLowerCase();
+    const langueNorm = langueRaw ? this.normalizeLanguage(langueRaw) : '';
+
+    const hasArrayFilter = Boolean(expertiseNeedle || secteurNeedle || langueNeedle);
+
+    if (!hasArrayFilter) {
+      const [total, mentors] = await Promise.all([
+        this.prisma.mentorProfile.count({ where }),
+        this.prisma.mentorProfile.findMany({
+          where,
+          skip,
+          take: limit,
+          select: this.PUBLIC_MENTOR_SELECT,
+          orderBy: {
+            anneesExperience: 'desc',
+          },
+        }),
+      ]);
+
+      return {
+        data: mentors,
+        meta: {
+          total,
+          page,
+          limit,
+          totalPages: Math.ceil(total / limit),
         },
-      }),
-    ]);
+      };
+    }
+
+    const candidates = await this.prisma.mentorProfile.findMany({
+      where,
+      select: this.PUBLIC_MENTOR_SELECT,
+      orderBy: {
+        anneesExperience: 'desc',
+      },
+    });
+
+    const filtered = candidates.filter((m) => {
+      if (expertiseNeedle) {
+        const matchExpertise = (m.expertises ?? []).some((e) =>
+          e.toLowerCase().includes(expertiseNeedle),
+        );
+        if (!matchExpertise) {
+          return false;
+        }
+      }
+
+      if (secteurNeedle) {
+        const matchSecteur = (m.secteurs ?? []).some((s) =>
+          s.toLowerCase().includes(secteurNeedle),
+        );
+        if (!matchSecteur) {
+          return false;
+        }
+      }
+
+      if (langueNeedle) {
+        const matchLangue = (m.langues ?? []).some(
+          (l) =>
+            this.normalizeLanguage(l) === langueNorm ||
+            l.toLowerCase().includes(langueNeedle),
+        );
+        if (!matchLangue) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+
+    const total = filtered.length;
+    const mentors = filtered.slice(skip, skip + limit);
 
     return {
       data: mentors,

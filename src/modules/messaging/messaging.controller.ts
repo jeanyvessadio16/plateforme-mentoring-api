@@ -19,6 +19,7 @@ import { MessagingService } from './messaging.service.js';
 import { CreateConversationDto } from './dto/create-conversation.dto.js';
 import { SendMessageDto } from './dto/send-message.dto.js';
 import { ListMessagesDto } from './dto/list-messages.dto.js';
+import { UploadAttachmentDto } from './dto/upload-attachment.dto.js';
 
 @ApiTags('Messagerie')
 @ApiBearerAuth('JWT-auth')
@@ -52,6 +53,17 @@ export class MessagingController {
     @Query() query: ListMessagesDto,
   ) {
     return this.messagingService.getMessages(userId, conversationId, query);
+  }
+
+  @Post(':id/attachments')
+  @ApiOperation({ summary: 'F10 - Téléverser une pièce jointe dans une conversation autorisée' })
+  @ApiResponse({ status: 201, description: 'Pièce jointe téléversée et URL signée générée.' })
+  async uploadAttachment(
+    @CurrentUser('id') userId: string,
+    @Param('id') conversationId: string,
+    @Body() dto: UploadAttachmentDto,
+  ) {
+    return this.messagingService.uploadAttachment(userId, conversationId, dto);
   }
 
   @Post(':id/messages')

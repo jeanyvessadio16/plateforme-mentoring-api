@@ -3,9 +3,11 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../core/database/prisma.service.js';
 import {
   AccountStatus,
@@ -28,6 +30,8 @@ import type { ListSessionsDto } from './dto/list-sessions.dto.js';
 
 @Injectable()
 export class SessionsService {
+  private readonly logger = new Logger(SessionsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
@@ -554,5 +558,85 @@ export class SessionsService {
       where: { id: sessionId },
       data,
     });
+  }
+
+  /**
+   * Tâche planifiée (F09 / F15) : rappelle les sessions prévues dans les prochaines 24h
+   */
+  @Cron(CronExpression.EVERY_HOUR)
+  async sendUpcomingSessionReminders(): Promise<number> {
+    const now = new Date();
+    const in24Hours = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const fortyEightHoursAgo = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+
+    const upcomingSessions = await this.prisma.mentorshipSession.findMany({
+      where: {
+        status: { in: [SessionStatus.SCHEDULED, SessionStatus.RESCHEDULED] },
+        dateDebut: { gte: now, lte: in24Hours },
+      },
+      include: {
+        mentor: { select: { id: true, nom: true, prenom: true } },
+        mentee: { select: { id: true, nom: true, prenom: true } },
+      },
+    });
+
+    if (upcomingSessions.length === 0) {
+      return 0;
+    }
+
+    const recentReminders = await this.prisma.notification.findMany({
+      where: {
+        type: NotificationType.ECHEANCE,
+        createdAt: { gte: fortyEightHoursAgo },
+      },
+      select: { userId: true, data: true },
+    });
+
+    const sentKeys = new Set<string>();
+    for (const notif of recentReminders) {
+      const payload = notif.data as Record<string, unknown> | null;
+      const sessionId =
+        payload && typeof payload.sessionId === 'string' ? payload.sessionId : null;
+      if (sessionId) {
+        sentKeys.add(`${notif.userId}:${sessionId}`);
+      }
+    }
+
+    let emittedCount = 0;
+    for (const session of upcomingSessions) {
+      const dateStr = session.dateDebut.toISOString();
+
+      if (!sentKeys.has(`${session.mentorId}:${session.id}`)) {
+        this.emitNotification({
+          userId: session.mentorId,
+          type: NotificationType.ECHEANCE,
+          titre: 'Rappel de session à venir',
+          message: `Votre session "${session.titre}" avec ${session.mentee.prenom} ${session.mentee.nom} est prévue dans moins de 24h (${dateStr}).`,
+          data: { sessionId: session.id, reminder: '24h' },
+        });
+        sentKeys.add(`${session.mentorId}:${session.id}`);
+        emittedCount++;
+      }
+
+      if (!sentKeys.has(`${session.menteeId}:${session.id}`)) {
+        this.emitNotification({
+          userId: session.menteeId,
+          type: NotificationType.ECHEANCE,
+          titre: 'Rappel de session à venir',
+          message: `Votre session "${session.titre}" avec ${session.mentor.prenom} ${session.mentor.nom} est prévue dans moins de 24h (${dateStr}).`,
+          data: { sessionId: session.id, reminder: '24h' },
+        });
+        sentKeys.add(`${session.menteeId}:${session.id}`);
+        emittedCount++;
+      }
+    }
+
+    if (emittedCount > 0) {
+      this.logger.log(
+        `Rappels de sessions émis (F09/F15) : ${emittedCount} notification(s).`,
+      );
+    }
+
+    return emittedCount;
   }
 }

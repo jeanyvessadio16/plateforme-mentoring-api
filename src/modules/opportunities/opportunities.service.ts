@@ -1,7 +1,13 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../core/database/prisma.service.js';
-import { OpportunityStatus, type Prisma } from '../../generated/prisma/client.js';
+import {
+  AccountStatus,
+  NotificationType,
+  OpportunityStatus,
+  UserRole,
+  type Prisma,
+} from '../../generated/prisma/client.js';
 import type { CreateOpportunityDto } from './dto/create-opportunity.dto.js';
 import type { UpdateOpportunityDto } from './dto/update-opportunity.dto.js';
 import type { FilterOpportunitiesDto } from './dto/filter-opportunities.dto.js';
@@ -18,10 +24,9 @@ export class OpportunitiesService {
     const skip = (page - 1) * limit;
 
     const where: Prisma.OpportunityWhereInput = {};
-    if (filter.status) {
-      where.status = filter.status;
-    } else {
-      where.status = OpportunityStatus.ACTIVE;
+    const targetStatus = filter.status ?? OpportunityStatus.ACTIVE;
+    where.status = targetStatus;
+    if (targetStatus === OpportunityStatus.ACTIVE) {
       where.dateExpiration = { gte: new Date() };
     }
 
@@ -116,7 +121,7 @@ export class OpportunitiesService {
   }
 
   async create(dto: CreateOpportunityDto) {
-    return this.prisma.opportunity.create({
+    const created = await this.prisma.opportunity.create({
       data: {
         titre: dto.titre,
         organisation: dto.organisation,
@@ -129,6 +134,38 @@ export class OpportunitiesService {
         status: OpportunityStatus.ACTIVE,
       },
     });
+
+    if (this.prisma.user?.findMany && this.prisma.notification?.createMany) {
+      try {
+        const beneficiaries = await this.prisma.user.findMany({
+          where: {
+            role: UserRole.BENEFICIAIRE,
+            statutCompte: AccountStatus.ACTIVE,
+          },
+          select: { id: true },
+          take: 1000,
+        });
+
+        if (beneficiaries.length > 0) {
+          await this.prisma.notification.createMany({
+            data: beneficiaries.map((b) => ({
+              userId: b.id,
+              type: NotificationType.OPPORTUNITE,
+              titre: `Nouvelle opportunité : ${created.titre}`,
+              message: `${created.organisation} — ${created.categorie}`,
+              data: { opportunityId: created.id },
+            })),
+          });
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(
+          `Échec non bloquant lors de la notification d’opportunité (${created.id}): ${message}`,
+        );
+      }
+    }
+
+    return created;
   }
 
   async update(id: string, dto: UpdateOpportunityDto) {

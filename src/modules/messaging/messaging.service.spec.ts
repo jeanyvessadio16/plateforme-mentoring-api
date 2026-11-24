@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Test, TestingModule } from '@nestjs/testing';
-import { ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { MessagingService } from './messaging.service.js';
 import { PrismaService } from '../../core/database/prisma.service.js';
+import { SupabaseService } from '../../core/supabase/supabase.service.js';
 import { UserRole } from '../../generated/prisma/client.js';
 
 describe('MessagingService', () => {
@@ -26,6 +27,11 @@ describe('MessagingService', () => {
   };
 
   const mockEmitter = { emit: vi.fn() };
+  const mockSupabase = {
+    uploadPrivateFile: vi.fn(),
+    createSignedUrl: vi.fn(),
+    removeFile: vi.fn(),
+  };
 
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -34,6 +40,7 @@ describe('MessagingService', () => {
         MessagingService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: EventEmitter2, useValue: mockEmitter },
+        { provide: SupabaseService, useValue: mockSupabase },
       ],
     }).compile();
 
@@ -104,5 +111,31 @@ describe('MessagingService', () => {
     await expect(
       service.getMessages('intruder', 'conv-1', { page: 1, limit: 30 }),
     ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('forbids non-participant from uploading attachments and rejects unsupported file formats (F10)', async () => {
+    mockPrisma.conversation.findUnique.mockResolvedValue({
+      id: 'conv-1',
+      participant1Id: 'u1',
+      participant2Id: 'u2',
+      participant1: {},
+      participant2: {},
+    });
+
+    await expect(
+      service.uploadAttachment('intruder', 'conv-1', {
+        fileName: 'doc.pdf',
+        base64Data: Buffer.from('%PDF-1.4').toString('base64'),
+      }),
+    ).rejects.toThrow(ForbiddenException);
+
+    await expect(
+      service.uploadAttachment('u1', 'conv-1', {
+        fileName: 'script.sh',
+        base64Data: Buffer.from('#!/bin/sh\necho hi').toString('base64'),
+      }),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(mockSupabase.uploadPrivateFile).not.toHaveBeenCalled();
   });
 });

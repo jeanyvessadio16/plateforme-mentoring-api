@@ -3,9 +3,11 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../core/database/prisma.service.js';
 import {
   AccountStatus,
@@ -33,6 +35,8 @@ import type { CreateResourceDto } from './dto/create-resource.dto.js';
 
 @Injectable()
 export class MentoringService {
+  private readonly logger = new Logger(MentoringService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
@@ -686,5 +690,75 @@ export class MentoringService {
 
     await this.prisma.mentorshipResource.delete({ where: { id: resourceId } });
     return { message: 'Ressource supprimée.' };
+  }
+
+  /**
+   * Tâche planifiée (F08 / F15) : rappelle les tâches arrivant à échéance dans les prochaines 24h
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_8AM)
+  async sendUpcomingTaskDeadlineReminders(): Promise<number> {
+    const now = new Date();
+    const in24Hours = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const fortyEightHoursAgo = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+
+    const tasksDueSoon = await this.prisma.mentorshipTask.findMany({
+      where: {
+        status: { not: TaskStatus.COMPLETED },
+        echeance: { gte: now, lte: in24Hours },
+        program: { status: ProgramStatus.ACTIVE },
+      },
+      include: {
+        program: { select: { id: true, titre: true, menteeId: true } },
+      },
+    });
+
+    if (tasksDueSoon.length === 0) {
+      return 0;
+    }
+
+    const recentReminders = await this.prisma.notification.findMany({
+      where: {
+        type: NotificationType.ECHEANCE,
+        createdAt: { gte: fortyEightHoursAgo },
+      },
+      select: { userId: true, data: true },
+    });
+
+    const sentKeys = new Set<string>();
+    for (const notif of recentReminders) {
+      const payload = notif.data as Record<string, unknown> | null;
+      const taskId =
+        payload && typeof payload.taskId === 'string' ? payload.taskId : null;
+      if (taskId) {
+        sentKeys.add(`${notif.userId}:${taskId}`);
+      }
+    }
+
+    let emittedCount = 0;
+    for (const task of tasksDueSoon) {
+      const key = `${task.program.menteeId}:${task.id}`;
+      if (sentKeys.has(key)) {
+        continue;
+      }
+
+      const deadlineStr = task.echeance ? task.echeance.toISOString() : '';
+      this.emitNotification({
+        userId: task.program.menteeId,
+        type: NotificationType.ECHEANCE,
+        titre: `Échéance proche : ${task.titre}`,
+        message: `L’action "${task.titre}" du parcours "${task.program.titre}" arrive à échéance (${deadlineStr}).`,
+        data: { taskId: task.id, programId: task.program.id },
+      });
+      sentKeys.add(key);
+      emittedCount++;
+    }
+
+    if (emittedCount > 0) {
+      this.logger.log(
+        `Rappels d’échéances de tâches émis (F08/F15) : ${emittedCount} notification(s).`,
+      );
+    }
+
+    return emittedCount;
   }
 }

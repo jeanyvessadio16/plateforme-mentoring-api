@@ -6,6 +6,7 @@ import { MentoringService } from './mentoring.service.js';
 import { PrismaService } from '../../core/database/prisma.service.js';
 import {
   AccountStatus,
+  NotificationType,
   ProgramStatus,
   RequestStatus,
   TaskStatus,
@@ -40,6 +41,9 @@ describe('MentoringService', () => {
       findMany: vi.fn(),
       findFirst: vi.fn(),
       update: vi.fn(),
+    },
+    notification: {
+      findMany: vi.fn(),
     },
     $transaction: vi.fn(async (cb: (tx: typeof mockTx) => unknown) => cb(mockTx)),
   };
@@ -168,5 +172,39 @@ describe('MentoringService', () => {
     await expect(
       service.getProgramById('intruder', UserRole.BENEFICIAIRE, 'prog-1'),
     ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('emits ECHEANCE notifications for tasks due within 24h without duplicates (F08/F15)', async () => {
+    const dueSoon = new Date(Date.now() + 6 * 60 * 60 * 1000);
+    mockPrisma.mentorshipTask.findMany.mockResolvedValue([
+      {
+        id: 'task-due-1',
+        titre: 'Finaliser le pitch deck',
+        echeance: dueSoon,
+        program: { id: 'prog-1', titre: 'Parcours Startup', menteeId: 'mentee-1' },
+      },
+      {
+        id: 'task-due-2',
+        titre: 'Étude de marché',
+        echeance: dueSoon,
+        program: { id: 'prog-1', titre: 'Parcours Startup', menteeId: 'mentee-1' },
+      },
+    ]);
+    mockPrisma.notification.findMany.mockResolvedValue([
+      { userId: 'mentee-1', data: { taskId: 'task-due-1' } },
+    ]);
+
+    const emittedCount = await service.sendUpcomingTaskDeadlineReminders();
+
+    expect(emittedCount).toBe(1);
+    expect(mockEmitter.emit).toHaveBeenCalledTimes(1);
+    expect(mockEmitter.emit).toHaveBeenCalledWith(
+      'notification.create',
+      expect.objectContaining({
+        userId: 'mentee-1',
+        type: NotificationType.ECHEANCE,
+        data: { taskId: 'task-due-2', programId: 'prog-1' },
+      }),
+    );
   });
 });

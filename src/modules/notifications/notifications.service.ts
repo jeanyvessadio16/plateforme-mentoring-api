@@ -19,6 +19,7 @@ const EMAIL_NOTIFICATION_TYPES = new Set<NotificationType>([
   NotificationType.RENDEZ_VOUS,
   NotificationType.MESSAGE,
   NotificationType.MASTERCLASS,
+  NotificationType.ECHEANCE,
   NotificationType.SYSTEM,
 ]);
 
