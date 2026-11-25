@@ -76,8 +76,15 @@ export class UsersController {
   }
 
   @Delete('me')
-  @ApiOperation({ summary: 'Supprimer mon compte (RGPD / Droit à l’oubli)' })
-  @ApiResponse({ status: 200, description: 'Compte supprimé.' })
+  @ApiOperation({
+    summary:
+      'Supprimer mon compte et purger tous mes documents : photo, CV, pièces jointes (RGPD / Droit à l’oubli)',
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Compte, données relationnelles PostgreSQL et fichiers Supabase Storage supprimés.',
+  })
   async deleteAccount(@CurrentUser('id') userId: string) {
     return this.usersService.deleteAccount(userId);
   }

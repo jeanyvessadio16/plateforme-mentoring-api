@@ -11,6 +11,7 @@ import { SupabaseService } from '../../core/supabase/supabase.service.js';
 import { UpdateUserProfileDto } from './dto/update-user-profile.dto.js';
 
 const PROFILE_AVATAR_BUCKET = 'plateforme-images';
+const PRIVATE_DOCUMENTS_BUCKET = 'mentor-documents';
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
 
 @Injectable()
@@ -317,19 +318,151 @@ export class UsersService {
     };
   }
 
+  private extractSupabaseStorageRef(
+    urlOrPath: string | null | undefined,
+    defaultBucket?: string,
+  ): { bucket: string; path: string } | null {
+    if (!urlOrPath) {
+      return null;
+    }
+    const trimmed = urlOrPath.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    if (/^https?:\/\//i.test(trimmed)) {
+      const supabaseUrl = this.supabaseService.getSupabaseUrl()?.replace(/\/+$/, '');
+      if (supabaseUrl && !trimmed.startsWith(`${supabaseUrl}/storage/v1/object/`)) {
+        return null;
+      }
+
+      const match = trimmed.match(
+        /\/storage\/v1\/object\/(?:public|sign|authenticated)\/([^/?#]+)\/([^?#]+)/,
+      );
+      if (!match) {
+        return null;
+      }
+
+      const bucket = decodeURIComponent(match[1]);
+      const path = decodeURIComponent(match[2]).replace(/^\/+/, '');
+      if (!bucket || !path || path.split('/').includes('..')) {
+        return null;
+      }
+      return { bucket, path };
+    }
+
+    if (!defaultBucket) {
+      return null;
+    }
+
+    const cleanPath = trimmed.split('?')[0].replace(/^\/+/, '');
+    if (!cleanPath || cleanPath.split('/').includes('..')) {
+      return null;
+    }
+
+    return { bucket: defaultBucket, path: cleanPath };
+  }
+
+  private addBucketPath(
+    bucketMap: Map<string, Set<string>>,
+    ref: { bucket: string; path: string } | null,
+  ): void {
+    if (!ref) {
+      return;
+    }
+    let set = bucketMap.get(ref.bucket);
+    if (!set) {
+      set = new Set<string>();
+      bucketMap.set(ref.bucket, set);
+    }
+    set.add(ref.path);
+  }
+
   /**
-   * Suppression de compte et données personnelles (Droit à l'oubli RGPD)
+   * Suppression de compte, documents stockés (avatar, CV, pièces jointes, ressources)
+   * et données personnelles en cascade (Droit à l'oubli RGPD)
    */
   async deleteAccount(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, supabaseUid: true },
+      select: {
+        id: true,
+        supabaseUid: true,
+        profile: { select: { photoUrl: true } },
+        mentorProfile: { select: { photoUrl: true, cvUrl: true } },
+        conversations1: {
+          select: {
+            id: true,
+            messages: { select: { attachments: { select: { fileUrl: true } } } },
+          },
+        },
+        conversations2: {
+          select: {
+            id: true,
+            messages: { select: { attachments: { select: { fileUrl: true } } } },
+          },
+        },
+        messagesSent: {
+          select: { attachments: { select: { fileUrl: true } } },
+        },
+        programsAsMentor: {
+          select: { resources: { select: { url: true } } },
+        },
+        programsAsMentee: {
+          select: { resources: { select: { url: true } } },
+        },
+      },
     });
 
     if (!user) {
       throw new NotFoundException('Utilisateur introuvable.');
     }
 
+    const bucketPaths = new Map<string, Set<string>>();
+
+    // 1. Collecter les références explicites en base (photo de profil, CV, pièces jointes, ressources hébergées)
+    this.addBucketPath(
+      bucketPaths,
+      this.extractSupabaseStorageRef(user.profile?.photoUrl, PROFILE_AVATAR_BUCKET),
+    );
+    this.addBucketPath(
+      bucketPaths,
+      this.extractSupabaseStorageRef(user.mentorProfile?.photoUrl, PROFILE_AVATAR_BUCKET),
+    );
+    this.addBucketPath(
+      bucketPaths,
+      this.extractSupabaseStorageRef(user.mentorProfile?.cvUrl, PRIVATE_DOCUMENTS_BUCKET),
+    );
+
+    const conversationIds = new Set<string>();
+    for (const conv of [...user.conversations1, ...user.conversations2]) {
+      conversationIds.add(conv.id);
+      for (const msg of conv.messages) {
+        for (const att of msg.attachments) {
+          this.addBucketPath(
+            bucketPaths,
+            this.extractSupabaseStorageRef(att.fileUrl, PRIVATE_DOCUMENTS_BUCKET),
+          );
+        }
+      }
+    }
+
+    for (const msg of user.messagesSent) {
+      for (const att of msg.attachments) {
+        this.addBucketPath(
+          bucketPaths,
+          this.extractSupabaseStorageRef(att.fileUrl, PRIVATE_DOCUMENTS_BUCKET),
+        );
+      }
+    }
+
+    for (const prog of [...user.programsAsMentor, ...user.programsAsMentee]) {
+      for (const res of prog.resources) {
+        this.addBucketPath(bucketPaths, this.extractSupabaseStorageRef(res.url));
+      }
+    }
+
+    // 2. Supprimer l'identité dans Supabase Auth
     if (user.supabaseUid) {
       const adminClient = this.supabaseService.getAdminClient();
       const { error } = await adminClient.auth.admin.deleteUser(user.supabaseUid);
@@ -341,11 +474,46 @@ export class UsersService {
       }
     }
 
+    // 3. Supprimer le compte et toutes ses entités relationnelles en base PostgreSQL (ON DELETE CASCADE)
     await this.prisma.user.delete({
       where: { id: userId },
     });
 
-    return { message: 'Compte supprimé avec succès conformément aux règles de protection des données.' };
+    // 4. Lister également les dossiers dédiés dans Supabase Storage (avatars, CV, conversations) pour purger tout fichier résiduel
+    const [avatarFolderPaths, cvFolderPaths, ...convFolderLists] = await Promise.all([
+      this.supabaseService.listFolderPaths(PROFILE_AVATAR_BUCKET, `avatars/${userId}`),
+      this.supabaseService.listFolderPaths(PRIVATE_DOCUMENTS_BUCKET, `cvs/${userId}`),
+      ...Array.from(conversationIds).map((convId) =>
+        this.supabaseService.listFolderPaths(
+          PRIVATE_DOCUMENTS_BUCKET,
+          `messages/${convId}`,
+        ),
+      ),
+    ]);
+
+    for (const p of avatarFolderPaths) {
+      this.addBucketPath(bucketPaths, { bucket: PROFILE_AVATAR_BUCKET, path: p });
+    }
+    for (const p of cvFolderPaths) {
+      this.addBucketPath(bucketPaths, { bucket: PRIVATE_DOCUMENTS_BUCKET, path: p });
+    }
+    for (const list of convFolderLists) {
+      for (const p of list) {
+        this.addBucketPath(bucketPaths, { bucket: PRIVATE_DOCUMENTS_BUCKET, path: p });
+      }
+    }
+
+    // 5. Purger tous les fichiers collectés dans chaque bucket Supabase Storage
+    await Promise.all(
+      Array.from(bucketPaths.entries()).map(([bucket, paths]) =>
+        this.supabaseService.removeFilesBestEffort(bucket, Array.from(paths)),
+      ),
+    );
+
+    return {
+      message:
+        'Compte et documents associés supprimés avec succès conformément aux règles de protection des données.',
+    };
   }
 
   /**

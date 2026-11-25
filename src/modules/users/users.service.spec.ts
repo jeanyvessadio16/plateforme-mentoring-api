@@ -23,17 +23,30 @@ describe('UsersService', () => {
     },
   };
 
+  const mockAdminDeleteUser = vi.fn().mockResolvedValue({ error: null });
+
   const mockSupabaseService = {
     getSupabaseUrl: vi.fn().mockReturnValue('https://example.supabase.co'),
-    getAdminClient: vi.fn(),
+    getAdminClient: vi.fn(() => ({
+      auth: {
+        admin: {
+          deleteUser: mockAdminDeleteUser,
+        },
+      },
+    })),
     uploadFile: vi.fn(),
     removeFile: vi.fn().mockResolvedValue(undefined),
+    listFolderPaths: vi.fn().mockResolvedValue([]),
+    removeFilesBestEffort: vi.fn().mockResolvedValue(0),
   };
 
   beforeEach(async () => {
     vi.clearAllMocks();
     mockSupabaseService.getSupabaseUrl.mockReturnValue('https://example.supabase.co');
     mockSupabaseService.removeFile.mockResolvedValue(undefined);
+    mockSupabaseService.listFolderPaths.mockResolvedValue([]);
+    mockSupabaseService.removeFilesBestEffort.mockResolvedValue(0);
+    mockAdminDeleteUser.mockResolvedValue({ error: null });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -95,5 +108,79 @@ describe('UsersService', () => {
   it('throws NotFoundException when deleting avatar for unknown user', async () => {
     mockPrisma.user.findUnique.mockResolvedValue(null);
     await expect(service.deleteAvatar('unknown')).rejects.toThrow(NotFoundException);
+  });
+
+  it('purges avatar, CV, message attachments, hosted resources, Auth user and DB records on deleteAccount', async () => {
+    mockPrisma.user.findUnique.mockResolvedValue({
+      id: 'u1',
+      supabaseUid: 'sub-u1',
+      profile: {
+        photoUrl:
+          'https://example.supabase.co/storage/v1/object/public/plateforme-images/avatars/u1/avatar-1.png',
+      },
+      mentorProfile: {
+        photoUrl:
+          'https://example.supabase.co/storage/v1/object/public/plateforme-images/avatars/u1/avatar-1.png',
+        cvUrl: 'cvs/u1/cv-mentor.pdf',
+      },
+      conversations1: [
+        {
+          id: 'conv-1',
+          messages: [
+            {
+              attachments: [
+                {
+                  fileUrl:
+                    'https://example.supabase.co/storage/v1/object/sign/mentor-documents/messages/conv-1/doc-1.pdf?token=abc',
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      conversations2: [],
+      messagesSent: [],
+      programsAsMentor: [
+        {
+          resources: [
+            {
+              url: 'https://example.supabase.co/storage/v1/object/public/mentor-documents/resources/prog-1/guide.pdf',
+            },
+            {
+              url: 'https://youtube.com/watch?v=external-link',
+            },
+          ],
+        },
+      ],
+      programsAsMentee: [],
+    });
+    mockPrisma.user.delete.mockResolvedValue({ id: 'u1' });
+    mockSupabaseService.listFolderPaths.mockImplementation(
+      async (bucket: string, prefix: string) => {
+        if (bucket === 'mentor-documents' && prefix === 'cvs/u1') {
+          return ['cvs/u1/cv-mentor.pdf', 'cvs/u1/cv-old-draft.pdf'];
+        }
+        return [];
+      },
+    );
+
+    const result = await service.deleteAccount('u1');
+
+    expect(mockAdminDeleteUser).toHaveBeenCalledWith('sub-u1');
+    expect(mockPrisma.user.delete).toHaveBeenCalledWith({ where: { id: 'u1' } });
+    expect(mockSupabaseService.removeFilesBestEffort).toHaveBeenCalledWith(
+      'plateforme-images',
+      ['avatars/u1/avatar-1.png'],
+    );
+    expect(mockSupabaseService.removeFilesBestEffort).toHaveBeenCalledWith(
+      'mentor-documents',
+      expect.arrayContaining([
+        'cvs/u1/cv-mentor.pdf',
+        'cvs/u1/cv-old-draft.pdf',
+        'messages/conv-1/doc-1.pdf',
+        'resources/prog-1/guide.pdf',
+      ]),
+    );
+    expect(result.message).toContain('documents associés supprimés');
   });
 });

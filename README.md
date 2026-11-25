@@ -105,7 +105,7 @@ Une fois démarrée :
 - **Authentification & Statuts** : vérification JWT asymétrique via JWKS ; rejet automatique des comptes `SUSPENDED` / `REJECTED` ; blocage des comptes en attente (`PENDING`) sur les opérations réservées aux partenaires, experts et mentors validés (`@RequireActiveAccount()`).
 - **Anti-bruteforce** : `ThrottlerGuard` global (`100 req/min`) et limites dédiées sur `/auth/register`, `/auth/login`, `/auth/forgot-password` et `/auth/verify-otp`.
 - **Sécurité des fichiers** : validation binaire par *magic bytes* (`PDF`, `JPG`, `PNG`, `WEBP`) et plafond à `5 Mo`.
-- **Protection des données (RGPD)** : consentements obligatoires (`consentCgu`, `consentData`), confidentialité des données sensibles (`situationHandicap` jamais exposée publiquement), export personnel (`GET /api/v1/users/me/export`) et suppression intégrale (`DELETE /api/v1/users/me`).
+- **Protection des données (RGPD)** : consentements obligatoires (`consentCgu`, `consentData`), confidentialité des données sensibles (`situationHandicap` jamais exposée publiquement), export personnel (`GET /api/v1/users/me/export`) et suppression intégrale (`DELETE /api/v1/users/me` : identité Supabase Auth, cascade complète PostgreSQL et purge automatique des fichiers dans Supabase Storage — photo de profil, CV, pièces jointes et ressources hébergées).
 
 ---
 

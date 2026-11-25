@@ -152,4 +152,59 @@ export class SupabaseService {
       this.logger.warn(`Suppression best-effort échouée (${bucket}/${path}): ${error.message}`);
     }
   }
+
+  /**
+   * Liste les chemins de fichiers présents dans un dossier d'un bucket Supabase Storage
+   */
+  async listFolderPaths(bucket: string, folderPrefix: string): Promise<string[]> {
+    const normalizedPrefix = folderPrefix.replace(/^\/+|\/+$/g, '');
+    if (!normalizedPrefix) {
+      return [];
+    }
+
+    const { data, error } = await this.adminClient.storage
+      .from(bucket)
+      .list(normalizedPrefix, { limit: 1000 });
+
+    if (error || !data) {
+      if (error) {
+        this.logger.warn(
+          `Impossible de lister les fichiers (${bucket}/${normalizedPrefix}): ${error.message}`,
+        );
+      }
+      return [];
+    }
+
+    return data
+      .filter((item) => Boolean(item.name) && item.name !== '.emptyFolderPlaceholder' && item.id !== null)
+      .map((item) => `${normalizedPrefix}/${item.name}`);
+  }
+
+  /**
+   * Suppression best-effort par lot de plusieurs fichiers d'un même bucket
+   */
+  async removeFilesBestEffort(bucket: string, paths: string[]): Promise<number> {
+    const uniquePaths = Array.from(
+      new Set(paths.map((p) => p.trim()).filter(Boolean)),
+    );
+    if (uniquePaths.length === 0) {
+      return 0;
+    }
+
+    let removedCount = 0;
+    const chunkSize = 100;
+    for (let i = 0; i < uniquePaths.length; i += chunkSize) {
+      const chunk = uniquePaths.slice(i, i + chunkSize);
+      const { error } = await this.adminClient.storage.from(bucket).remove(chunk);
+      if (error) {
+        this.logger.warn(
+          `Suppression par lot partiellement échouée (${bucket}, ${chunk.length} fichier(s)): ${error.message}`,
+        );
+      } else {
+        removedCount += chunk.length;
+      }
+    }
+
+    return removedCount;
+  }
 }
