@@ -28,6 +28,7 @@ import {
   NOTIFICATION_CREATE_EVENT,
   type CreateNotificationEvent,
 } from '../notifications/notifications.service.js';
+import { UsersService } from '../users/users.service.js';
 import type { ListAdminUsersDto } from './dto/list-admin-users.dto.js';
 import type { UpdateUserStatusDto } from './dto/update-user-status.dto.js';
 import type { UpdateMatchingWeightsDto } from './dto/update-matching-weights.dto.js';
@@ -73,6 +74,7 @@ export class AdminService {
     private readonly prisma: PrismaService,
     private readonly supabaseService: SupabaseService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly usersService: UsersService,
   ) {}
 
   private emitNotification(payload: CreateNotificationEvent): void {
@@ -500,6 +502,16 @@ export class AdminService {
     }
 
     return updated;
+  }
+
+  async deleteUser(adminId: string, userId: string) {
+    if (adminId === userId) {
+      throw new BadRequestException(
+        'Vous ne pouvez pas supprimer votre propre compte administrateur depuis cet écran.',
+      );
+    }
+
+    return this.usersService.deleteAccount(userId);
   }
 
   async syncAuthUsers() {

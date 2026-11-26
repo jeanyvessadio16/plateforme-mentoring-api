@@ -4,7 +4,14 @@ import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { SessionsService } from './sessions.service.js';
 import { PrismaService } from '../../core/database/prisma.service.js';
-import { AccountStatus, NotificationType, SessionStatus, UserRole } from '../../generated/prisma/client.js';
+import {
+  AccountStatus,
+  NotificationType,
+  ProgramStatus,
+  RequestStatus,
+  SessionStatus,
+  UserRole,
+} from '../../generated/prisma/client.js';
 
 describe('SessionsService', () => {
   let service: SessionsService;
@@ -16,6 +23,8 @@ describe('SessionsService', () => {
 
   const mockPrisma = {
     mentorProfile: { findFirst: vi.fn(), findUnique: vi.fn() },
+    mentorshipProgram: { findUnique: vi.fn(), findFirst: vi.fn() },
+    mentorshipRequest: { findFirst: vi.fn() },
     availabilitySlot: { findUnique: vi.fn(), create: vi.fn(), findMany: vi.fn() },
     mentorshipSession: {
       findFirst: vi.fn(),
@@ -45,6 +54,12 @@ describe('SessionsService', () => {
 
   it('rejects overlapping sessions for the same mentor', async () => {
     mockPrisma.mentorProfile.findFirst.mockResolvedValue({ userId: 'mentor-1' });
+    mockPrisma.mentorshipProgram.findFirst.mockResolvedValue({ id: 'prog-1' });
+    mockPrisma.mentorshipRequest.findFirst.mockResolvedValue({
+      id: 'req-1',
+      status: RequestStatus.ACCEPTED,
+      program: { id: 'prog-1', status: ProgramStatus.ACTIVE },
+    });
     mockPrisma.mentorProfile.findUnique.mockResolvedValue({
       statutValidation: AccountStatus.ACTIVE,
     });
@@ -62,6 +77,12 @@ describe('SessionsService', () => {
 
   it('deactivates non-recurring slot when booked and notifies both parties', async () => {
     mockPrisma.mentorProfile.findFirst.mockResolvedValue({ userId: 'mentor-1' });
+    mockPrisma.mentorshipProgram.findFirst.mockResolvedValue({ id: 'prog-1' });
+    mockPrisma.mentorshipRequest.findFirst.mockResolvedValue({
+      id: 'req-1',
+      status: RequestStatus.ACCEPTED,
+      program: { id: 'prog-1', status: ProgramStatus.ACTIVE },
+    });
     mockPrisma.mentorProfile.findUnique.mockResolvedValue({
       statutValidation: AccountStatus.ACTIVE,
     });
@@ -188,5 +209,57 @@ describe('SessionsService', () => {
       where: { id: 'sess-fb-1' },
       data: { feedbackMentee: 'Séance très utile', rating: 5 },
     });
+  });
+
+  it('blocks beneficiary from booking a session until the mentor or expert accepts the mentorship request', async () => {
+    mockPrisma.mentorProfile.findFirst.mockResolvedValue({ userId: 'mentor-1' });
+    mockPrisma.mentorshipProgram.findFirst.mockResolvedValue(null);
+    mockPrisma.mentorshipRequest.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.bookSession('mentee-1', UserRole.BENEFICIAIRE, {
+        mentorId: 'mentor-1',
+        titre: 'Première séance',
+        dateDebut: '2026-12-05T14:00:00.000Z',
+        dateFin: '2026-12-05T15:00:00.000Z',
+      }),
+    ).rejects.toThrow(ForbiddenException);
+
+    // Une fois la demande acceptée, la réservation est autorisée et rattachée automatiquement au parcours actif
+    mockPrisma.mentorshipRequest.findFirst.mockResolvedValue({
+      id: 'req-accepted',
+      status: RequestStatus.ACCEPTED,
+      program: { id: 'prog-accepted', status: ProgramStatus.ACTIVE },
+    });
+    mockPrisma.mentorProfile.findUnique.mockResolvedValue({
+      statutValidation: AccountStatus.ACTIVE,
+    });
+    mockPrisma.mentorshipSession.findFirst.mockResolvedValue(null);
+    mockTx.mentorshipSession.create.mockResolvedValue({
+      id: 'sess-ok',
+      programId: 'prog-accepted',
+      titre: 'Première séance',
+      status: SessionStatus.SCHEDULED,
+      mentor: { id: 'mentor-1', nom: 'Diallo', prenom: 'Awa' },
+      mentee: { id: 'mentee-1', nom: 'Ndiaye', prenom: 'Ibrahima' },
+    });
+
+    const created = await service.bookSession('mentee-1', UserRole.BENEFICIAIRE, {
+      mentorId: 'mentor-1',
+      titre: 'Première séance',
+      dateDebut: '2026-12-05T14:00:00.000Z',
+      dateFin: '2026-12-05T15:00:00.000Z',
+    });
+
+    expect(created.id).toBe('sess-ok');
+    expect(mockTx.mentorshipSession.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          programId: 'prog-accepted',
+          mentorId: 'mentor-1',
+          menteeId: 'mentee-1',
+        }),
+      }),
+    );
   });
 });

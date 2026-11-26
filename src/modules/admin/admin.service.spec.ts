@@ -5,11 +5,15 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AdminService } from './admin.service.js';
 import { PrismaService } from '../../core/database/prisma.service.js';
 import { SupabaseService } from '../../core/supabase/supabase.service.js';
+import { UsersService } from '../users/users.service.js';
 import { AccountStatus, UserRole } from '../../generated/prisma/client.js';
 
 describe('AdminService', () => {
   let service: AdminService;
   const mockListAuthUsers = vi.fn();
+  const mockUsersService = {
+    deleteAccount: vi.fn(),
+  };
 
   const mockPrisma = {
     user: {
@@ -54,6 +58,7 @@ describe('AdminService', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: SupabaseService, useValue: mockSupabase },
         { provide: EventEmitter2, useValue: mockEmitter },
+        { provide: UsersService, useValue: mockUsersService },
       ],
     }).compile();
 
@@ -195,5 +200,20 @@ describe('AdminService', () => {
         }),
       }),
     );
+  });
+
+  it('prevents admin self-deletion and delegates target deletion to UsersService.deleteAccount', async () => {
+    await expect(service.deleteUser('admin-1', 'admin-1')).rejects.toThrow(
+      BadRequestException,
+    );
+    expect(mockUsersService.deleteAccount).not.toHaveBeenCalled();
+
+    mockUsersService.deleteAccount.mockResolvedValue({
+      message: 'Compte et documents associés supprimés avec succès.',
+    });
+
+    const res = await service.deleteUser('admin-1', 'user-42');
+    expect(mockUsersService.deleteAccount).toHaveBeenCalledWith('user-42');
+    expect(res.message).toContain('supprimés');
   });
 });

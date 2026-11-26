@@ -12,6 +12,8 @@ import { PrismaService } from '../../core/database/prisma.service.js';
 import {
   AccountStatus,
   NotificationType,
+  ProgramStatus,
+  RequestStatus,
   SessionStatus,
   UserRole,
   type Prisma,
@@ -222,6 +224,7 @@ export class SessionsService {
 
     let mentorId: string | undefined;
     let menteeId: string | undefined;
+    let resolvedProgramId: string | null = dto.programId ?? null;
 
     if (dto.programId) {
       const program = await this.prisma.mentorshipProgram.findUnique({
@@ -237,8 +240,14 @@ export class SessionsService {
       ) {
         throw new ForbiddenException('Vous ne participez pas à ce parcours.');
       }
+      if (program.status !== ProgramStatus.ACTIVE && userRole !== UserRole.ADMIN) {
+        throw new BadRequestException(
+          'Ce parcours de mentoring n’est plus actif pour réserver une nouvelle session.',
+        );
+      }
       mentorId = program.mentorId;
       menteeId = program.menteeId;
+      resolvedProgramId = program.id;
     } else if (
       (userRole === UserRole.MENTOR || userRole === UserRole.EXPERT) &&
       dto.menteeId
@@ -260,6 +269,57 @@ export class SessionsService {
       throw new BadRequestException(
         'Un utilisateur ne peut pas réserver une session avec lui-même.',
       );
+    }
+
+    // Règle métier (F07 / F09) : un bénéficiaire ne peut réserver une session
+    // que si le mentor ou l'expert a accepté sa demande de mentorat
+    if (!resolvedProgramId) {
+      const [activeProgram, acceptedRequest] = await Promise.all([
+        this.prisma.mentorshipProgram.findFirst({
+          where: {
+            mentorId,
+            menteeId,
+            status: ProgramStatus.ACTIVE,
+          },
+          orderBy: { updatedAt: 'desc' },
+          select: { id: true },
+        }),
+        this.prisma.mentorshipRequest.findFirst({
+          where: {
+            mentorId,
+            menteeId,
+            status: RequestStatus.ACCEPTED,
+          },
+          orderBy: { updatedAt: 'desc' },
+          select: {
+            id: true,
+            program: { select: { id: true, status: true } },
+          },
+        }),
+      ]);
+
+      const hasValidAcceptedRequest = Boolean(
+        acceptedRequest &&
+          (!acceptedRequest.program ||
+            acceptedRequest.program.status === ProgramStatus.ACTIVE),
+      );
+
+      if (
+        userId === menteeId &&
+        userRole !== UserRole.ADMIN &&
+        !activeProgram &&
+        !hasValidAcceptedRequest
+      ) {
+        throw new ForbiddenException(
+          'Vous devez disposer d’une demande de mentorat acceptée par ce mentor ou expert avant de réserver une session.',
+        );
+      }
+
+      resolvedProgramId =
+        activeProgram?.id ??
+        (acceptedRequest?.program?.status === ProgramStatus.ACTIVE
+          ? acceptedRequest.program.id
+          : null);
     }
 
     // Vérifier que le mentor existe et n'est pas bloqué
@@ -295,7 +355,7 @@ export class SessionsService {
     const session = await this.prisma.$transaction(async (tx) => {
       const created = await tx.mentorshipSession.create({
         data: {
-          programId: dto.programId ?? null,
+          programId: resolvedProgramId,
           slotId: dto.slotId ?? null,
           mentorId,
           menteeId,

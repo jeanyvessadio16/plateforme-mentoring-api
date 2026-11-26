@@ -389,7 +389,7 @@ export class UsersService {
         id: true,
         supabaseUid: true,
         profile: { select: { photoUrl: true } },
-        mentorProfile: { select: { photoUrl: true, cvUrl: true } },
+        mentorProfile: { select: { id: true, photoUrl: true, cvUrl: true } },
         conversations1: {
           select: {
             id: true,
@@ -474,7 +474,14 @@ export class UsersService {
       }
     }
 
-    // 3. Supprimer le compte et toutes ses entités relationnelles en base PostgreSQL (ON DELETE CASCADE)
+    // 3. Supprimer les signalements visant cet utilisateur puis supprimer définitivement le compte et toutes ses entités relationnelles en base PostgreSQL (ON DELETE CASCADE)
+    const targetIds = [userId, ...(user.mentorProfile?.id ? [user.mentorProfile.id] : [])];
+    await this.prisma.report.deleteMany({
+      where: {
+        OR: [{ reportedUserId: userId }, { targetId: { in: targetIds } }],
+      },
+    });
+
     await this.prisma.user.delete({
       where: { id: userId },
     });

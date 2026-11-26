@@ -21,6 +21,9 @@ describe('UsersService', () => {
     mentorProfile: {
       update: vi.fn(),
     },
+    report: {
+      deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
   };
 
   const mockAdminDeleteUser = vi.fn().mockResolvedValue({ error: null });
@@ -119,6 +122,7 @@ describe('UsersService', () => {
           'https://example.supabase.co/storage/v1/object/public/plateforme-images/avatars/u1/avatar-1.png',
       },
       mentorProfile: {
+        id: 'mp-u1',
         photoUrl:
           'https://example.supabase.co/storage/v1/object/public/plateforme-images/avatars/u1/avatar-1.png',
         cvUrl: 'cvs/u1/cv-mentor.pdf',
@@ -167,6 +171,11 @@ describe('UsersService', () => {
     const result = await service.deleteAccount('u1');
 
     expect(mockAdminDeleteUser).toHaveBeenCalledWith('sub-u1');
+    expect(mockPrisma.report.deleteMany).toHaveBeenCalledWith({
+      where: {
+        OR: [{ reportedUserId: 'u1' }, { targetId: { in: ['u1', 'mp-u1'] } }],
+      },
+    });
     expect(mockPrisma.user.delete).toHaveBeenCalledWith({ where: { id: 'u1' } });
     expect(mockSupabaseService.removeFilesBestEffort).toHaveBeenCalledWith(
       'plateforme-images',

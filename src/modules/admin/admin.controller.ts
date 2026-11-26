@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -71,6 +72,18 @@ export class AdminController {
     @Body() dto: UpdateUserRoleDto,
   ) {
     return this.adminService.updateUserRole(userId, dto.role);
+  }
+
+  @Delete('users/:id')
+  @ApiOperation({
+    summary:
+      'F16 - Supprimer définitivement un compte utilisateur et tous ses documents (Admin)',
+  })
+  async deleteUser(
+    @CurrentUser('id') adminId: string,
+    @Param('id') userId: string,
+  ) {
+    return this.adminService.deleteUser(adminId, userId);
   }
 
   @Get('programs')
