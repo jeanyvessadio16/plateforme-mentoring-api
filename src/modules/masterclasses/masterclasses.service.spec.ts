@@ -14,6 +14,8 @@ describe('MasterclassesService', () => {
       count: vi.fn(),
       findMany: vi.fn(),
       findUnique: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(),
     },
     masterclassRegistration: {
       findUnique: vi.fn(),
@@ -88,6 +90,26 @@ describe('MasterclassesService', () => {
 
     await expect(
       service.getAccessLinks('mc1', 'exp-pending', UserRole.EXPERT, AccountStatus.PENDING),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('prevents an expert from modifying or deleting another expert masterclass', async () => {
+    mockPrisma.masterclass.findUnique.mockResolvedValue({
+      id: 'mc-owned',
+      createdById: 'expert-1',
+      titre: 'Masterclass Cloud',
+    });
+
+    await expect(
+      service.update(
+        'mc-owned',
+        { titre: 'Piratage' },
+        { id: 'expert-2', role: UserRole.EXPERT },
+      ),
+    ).rejects.toThrow(ForbiddenException);
+
+    await expect(
+      service.remove('mc-owned', { id: 'expert-2', role: UserRole.EXPERT }),
     ).rejects.toThrow(ForbiddenException);
   });
 });

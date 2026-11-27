@@ -133,6 +133,26 @@ export class AuthService {
     return `${baseUrl}/auth/callback`;
   }
 
+  private normalizeUserLanguage(rawLangue?: string): {
+    code: string;
+    label: string;
+  } {
+    const cleaned = (rawLangue ?? '').trim().toLowerCase();
+    if (cleaned === 'en' || cleaned === 'anglais' || cleaned === 'english') {
+      return { code: 'en', label: 'Anglais' };
+    }
+    if (cleaned === 'wo' || cleaned === 'wolof') {
+      return { code: 'wo', label: 'Wolof' };
+    }
+    if (cleaned === 'ar' || cleaned === 'arabe' || cleaned === 'arabic') {
+      return { code: 'ar', label: 'Arabe' };
+    }
+    if (cleaned === 'pt' || cleaned === 'portugais' || cleaned === 'portuguese') {
+      return { code: 'pt', label: 'Portugais' };
+    }
+    return { code: 'fr', label: 'Français' };
+  }
+
   /**
    * F01 - Inscription d'un nouvel utilisateur (auth/register)
    */
@@ -263,6 +283,8 @@ export class AuthService {
       }
     }
 
+    const normalizedLang = this.normalizeUserLanguage(dto.langue);
+
     // Création transactionnelle dans la base de données locale (avec rollback Supabase Auth & Storage en cas d'échec)
     let user: Awaited<ReturnType<typeof this.prisma.user.create>> & {
       profile?: unknown;
@@ -284,7 +306,7 @@ export class AuthService {
           pays: dto.pays,
           role: dto.role,
           statutCompte,
-          langue: dto.langue || 'fr',
+          langue: normalizedLang.code,
           consentCgu: dto.consentCgu,
           consentData: dto.consentData,
           profile: {
@@ -295,7 +317,7 @@ export class AuthService {
               competences: isMentorOrExpert ? (dto.expertises ?? []) : [],
               centresInteret: [],
               objectifs: [],
-              langues: [dto.langue || 'fr'],
+              langues: [normalizedLang.label],
               disponibilite: isMentorOrExpert ? (dto.disponibilites ?? null) : null,
             },
           },
@@ -309,7 +331,7 @@ export class AuthService {
                   anneesExperience: dto.anneesExperience ?? 0,
                   expertises: dto.expertises ?? [],
                   secteurs: dto.secteurs ?? [],
-                  langues: ['Français'],
+                  langues: [normalizedLang.label],
                   publicsAccompagnes: [],
                   typesMentoring: dto.typesMentoring ?? MentorshipType.INDIVIDUEL,
                   disponibilites: dto.disponibilites?.trim() || null,
@@ -677,6 +699,8 @@ export class AuthService {
           ? dto.sdh
           : false;
 
+    const normalizedLang = this.normalizeUserLanguage(dto.langue);
+
     const user = await this.prisma.user.create({
       data: {
         supabaseUid,
@@ -691,7 +715,7 @@ export class AuthService {
         pays: dto.pays,
         role: dto.role,
         statutCompte,
-        langue: dto.langue || 'fr',
+        langue: normalizedLang.code,
         consentCgu: dto.consentCgu,
         consentData: dto.consentData,
         profile: {
@@ -699,7 +723,7 @@ export class AuthService {
             competences: [],
             centresInteret: [],
             objectifs: [],
-            langues: [dto.langue || 'fr'],
+            langues: [normalizedLang.label],
           },
         },
       },

@@ -42,6 +42,18 @@ export class OpportunitiesController {
     return this.opportunitiesService.getMyFavorites(userId);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.PARTENAIRE)
+  @Get('me/created')
+  @ApiOperation({
+    summary: 'F12 - Lister les opportunités gérées par le partenaire connecté (ou toutes pour Admin)',
+  })
+  async getManagedOpportunities(
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') userRole: UserRole,
+  ) {
+    return this.opportunitiesService.findManaged(userId, userRole);
+  }
+
   @Public()
   @Get(':id')
   @ApiOperation({ summary: 'F12 - Consulter le détail d’une opportunité' })
@@ -71,23 +83,41 @@ export class OpportunitiesController {
   @RequireActiveAccount()
   @Post()
   @ApiOperation({ summary: 'F12 - Publier une opportunité (Admin / Partenaire validé)' })
-  async create(@Body() dto: CreateOpportunityDto) {
-    return this.opportunitiesService.create(dto);
+  async create(
+    @Body() dto: CreateOpportunityDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.opportunitiesService.create(dto, userId);
   }
 
   @Roles(UserRole.ADMIN, UserRole.PARTENAIRE)
   @RequireActiveAccount()
   @Patch(':id')
-  @ApiOperation({ summary: 'F12 - Mettre à jour une opportunité (Admin / Partenaire validé)' })
-  async update(@Param('id') id: string, @Body() dto: UpdateOpportunityDto) {
-    return this.opportunitiesService.update(id, dto);
+  @ApiOperation({ summary: 'F12 - Mettre à jour une opportunité (Admin / Partenaire propriétaire)' })
+  async update(
+    @Param('id') id: string,
+    @Body() dto: UpdateOpportunityDto,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') userRole: UserRole,
+  ) {
+    return this.opportunitiesService.update(id, dto, {
+      id: userId,
+      role: userRole,
+    });
   }
 
   @Roles(UserRole.ADMIN, UserRole.PARTENAIRE)
   @RequireActiveAccount()
   @Delete(':id')
-  @ApiOperation({ summary: 'F12 - Supprimer une opportunité (Admin / Partenaire validé)' })
-  async remove(@Param('id') id: string) {
-    return this.opportunitiesService.remove(id);
+  @ApiOperation({ summary: 'F12 - Supprimer une opportunité (Admin / Partenaire propriétaire)' })
+  async remove(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') userRole: UserRole,
+  ) {
+    return this.opportunitiesService.remove(id, {
+      id: userId,
+      role: userRole,
+    });
   }
 }

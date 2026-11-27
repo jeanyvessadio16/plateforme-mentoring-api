@@ -323,4 +323,40 @@ describe('AuthService', () => {
       }),
     );
   });
+
+  it("normalizes English mentor registration language to code 'en' and label 'Anglais'", async () => {
+    const validPdfBase64 = Buffer.from('%PDF-1.4 sample content').toString('base64');
+    mockPrisma.user.findUnique.mockResolvedValue(null);
+    mockSignUp.mockResolvedValue({
+      data: { user: { id: 'sub-en-mentor' }, session: null },
+      error: null,
+    });
+    (mockSupabase as Record<string, unknown>).uploadPrivateFile = vi
+      .fn()
+      .mockResolvedValue('cvs/u-en/cv.pdf');
+    mockPrisma.user.create.mockResolvedValue({
+      id: 'u-en',
+      role: UserRole.MENTOR,
+      statutCompte: AccountStatus.PENDING,
+      mentorProfile: { statutValidation: AccountStatus.PENDING },
+    });
+
+    await service.register({
+      email: 'en-mentor@example.com',
+      password: 'Password123!',
+      nom: 'Ndiaye',
+      prenom: 'Ibrahima',
+      pays: 'Sénégal',
+      langue: 'en',
+      role: UserRole.MENTOR,
+      consentCgu: true,
+      consentData: true,
+      cvBase64: validPdfBase64,
+    });
+
+    const createCall = mockPrisma.user.create.mock.calls[0][0].data;
+    expect(createCall.langue).toBe('en');
+    expect(createCall.profile.create.langues).toEqual(['Anglais']);
+    expect(createCall.mentorProfile.create.langues).toEqual(['Anglais']);
+  });
 });

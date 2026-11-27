@@ -155,7 +155,16 @@ export class DashboardsService {
         where: { menteeId: userId, status: SessionStatus.COMPLETED },
       }),
       this.prisma.matchingResult.findMany({
-        where: { menteeId: userId },
+        where: {
+          menteeId: userId,
+          mentor: {
+            statutValidation: AccountStatus.ACTIVE,
+            isAvailable: true,
+            user: {
+              statutCompte: AccountStatus.ACTIVE,
+            },
+          },
+        },
         select: {
           id: true,
           scoreTotal: true,
@@ -206,7 +215,11 @@ export class DashboardsService {
     const fallbackMentors =
       topRecommendations.length === 0
         ? await this.prisma.mentorProfile.findMany({
-            where: { statutValidation: AccountStatus.ACTIVE, isAvailable: true },
+            where: {
+              statutValidation: AccountStatus.ACTIVE,
+              isAvailable: true,
+              user: { statutCompte: AccountStatus.ACTIVE },
+            },
             select: {
               id: true,
               userId: true,
@@ -373,8 +386,9 @@ export class DashboardsService {
     const now = new Date();
     const [masterclasses, sessions, unreadNotificationsCount] = await Promise.all([
       this.prisma.masterclass.findMany({
+        where: user.role === UserRole.ADMIN ? {} : { createdById: userId },
         orderBy: { dateSession: 'asc' },
-        take: 10,
+        take: 20,
         include: { _count: { select: { registrations: true } } },
       }),
       this.prisma.mentorshipSession.findMany({
@@ -446,6 +460,7 @@ export class DashboardsService {
       ratingAggregate,
     ] = await Promise.all([
       this.prisma.opportunity.findMany({
+        where: user.role === UserRole.ADMIN ? {} : { createdById: userId },
         orderBy: { createdAt: 'desc' },
       }),
       this.prisma.user.findMany({

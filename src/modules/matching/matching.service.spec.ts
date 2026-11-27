@@ -162,4 +162,38 @@ describe('MatchingService', () => {
     expect(results).toHaveLength(1);
     expect(results[0].detailsScores.languageScore).toBe(100);
   });
+
+  it('filters cached recommendations to active and available mentors only', async () => {
+    mockPrisma.matchingResult.findMany.mockResolvedValue([
+      {
+        scoreTotal: 92,
+        detailsScores: {
+          expertiseScore: 100,
+          objectiveScore: 90,
+          sectorScore: 100,
+          availabilityScore: 95,
+          languageScore: 100,
+          formatScore: 100,
+        },
+        justification: 'Forte synergie.',
+        mentor: mentorsFixture[1],
+      },
+    ]);
+
+    const recs = await service.getRecommendations('mentee-1');
+
+    expect(recs).toHaveLength(1);
+    expect(mockPrisma.matchingResult.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          menteeId: 'mentee-1',
+          mentor: {
+            statutValidation: AccountStatus.ACTIVE,
+            isAvailable: true,
+            user: { statutCompte: AccountStatus.ACTIVE },
+          },
+        },
+      }),
+    );
+  });
 });

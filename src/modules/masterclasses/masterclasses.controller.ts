@@ -43,6 +43,18 @@ export class MasterclassesController {
     return this.masterclassesService.getMyRegistrations(userId);
   }
 
+  @Roles(UserRole.ADMIN, UserRole.EXPERT)
+  @Get('me/created')
+  @ApiOperation({
+    summary: 'F11 - Lister les masterclasses gérées par l’expert connecté (ou toutes pour Admin)',
+  })
+  async getManagedMasterclasses(
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') userRole: UserRole,
+  ) {
+    return this.masterclassesService.findManaged(userId, userRole);
+  }
+
   @Public()
   @Get(':id')
   @ApiOperation({ summary: 'F11 - Détail public d’une masterclass (sans liens live/replay)' })
@@ -77,43 +89,75 @@ export class MasterclassesController {
   @RequireActiveAccount()
   @Post()
   @ApiOperation({ summary: 'F11 - Créer une masterclass (Admin / Expert validé)' })
-  async create(@Body() dto: CreateMasterclassDto) {
-    return this.masterclassesService.create(dto);
+  async create(
+    @Body() dto: CreateMasterclassDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.masterclassesService.create(dto, userId);
   }
 
   @Roles(UserRole.ADMIN, UserRole.EXPERT)
   @RequireActiveAccount()
   @Patch(':id')
-  @ApiOperation({ summary: 'F11 - Mettre à jour une masterclass (Admin / Expert validé)' })
-  async update(@Param('id') id: string, @Body() dto: UpdateMasterclassDto) {
-    return this.masterclassesService.update(id, dto);
+  @ApiOperation({ summary: 'F11 - Mettre à jour une masterclass (Admin / Expert propriétaire)' })
+  async update(
+    @Param('id') id: string,
+    @Body() dto: UpdateMasterclassDto,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') userRole: UserRole,
+  ) {
+    return this.masterclassesService.update(id, dto, {
+      id: userId,
+      role: userRole,
+    });
   }
 
   @Roles(UserRole.ADMIN, UserRole.EXPERT)
   @RequireActiveAccount()
   @Delete(':id')
-  @ApiOperation({ summary: 'F11 - Supprimer une masterclass (Admin / Expert validé)' })
-  async remove(@Param('id') id: string) {
-    return this.masterclassesService.remove(id);
+  @ApiOperation({ summary: 'F11 - Supprimer une masterclass (Admin / Expert propriétaire)' })
+  async remove(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') userRole: UserRole,
+  ) {
+    return this.masterclassesService.remove(id, {
+      id: userId,
+      role: userRole,
+    });
   }
 
   @Roles(UserRole.ADMIN, UserRole.EXPERT)
   @RequireActiveAccount()
   @Get(':id/registrations')
-  @ApiOperation({ summary: 'F11 - Lister les participants inscrits (Admin / Expert validé)' })
-  async listRegistrations(@Param('id') id: string) {
-    return this.masterclassesService.listRegistrations(id);
+  @ApiOperation({ summary: 'F11 - Lister les participants inscrits (Admin / Expert propriétaire)' })
+  async listRegistrations(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') userRole: UserRole,
+  ) {
+    return this.masterclassesService.listRegistrations(id, {
+      id: userId,
+      role: userRole,
+    });
   }
 
   @Roles(UserRole.ADMIN, UserRole.EXPERT)
   @RequireActiveAccount()
   @Patch(':id/registrations/:userId/attendance')
-  @ApiOperation({ summary: 'F11 - Marquer la présence d’un participant (Admin / Expert validé)' })
+  @ApiOperation({ summary: 'F11 - Marquer la présence d’un participant (Admin / Expert propriétaire)' })
   async markAttendance(
     @Param('id') id: string,
     @Param('userId') targetUserId: string,
     @Body() dto: MarkAttendanceDto,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') userRole: UserRole,
   ) {
-    return this.masterclassesService.markAttendance(id, targetUserId, dto.attended);
+    return this.masterclassesService.markAttendance(
+      id,
+      targetUserId,
+      dto.attended,
+      { id: userId, role: userRole },
+    );
   }
 }

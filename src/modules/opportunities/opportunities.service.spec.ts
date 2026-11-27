@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { ForbiddenException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { OpportunitiesService } from './opportunities.service.js';
 import { PrismaService } from '../../core/database/prisma.service.js';
@@ -19,6 +20,8 @@ describe('OpportunitiesService', () => {
       findMany: vi.fn(),
       findUnique: vi.fn(),
       create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(),
       updateMany: vi.fn(),
     },
     opportunityFavorite: {
@@ -113,5 +116,28 @@ describe('OpportunitiesService', () => {
         data: { status: OpportunityStatus.EXPIRED },
       }),
     );
+  });
+
+  it('prevents a partner from updating or deleting another partner opportunity', async () => {
+    mockPrisma.opportunity.findUnique.mockResolvedValue({
+      id: 'opp-other',
+      createdById: 'partner-owner',
+      titre: 'Stage Cloud',
+    });
+
+    await expect(
+      service.update(
+        'opp-other',
+        { titre: 'Tentative modification' },
+        { id: 'partner-intruder', role: UserRole.PARTENAIRE },
+      ),
+    ).rejects.toThrow(ForbiddenException);
+
+    await expect(
+      service.remove('opp-other', {
+        id: 'partner-intruder',
+        role: UserRole.PARTENAIRE,
+      }),
+    ).rejects.toThrow(ForbiddenException);
   });
 });

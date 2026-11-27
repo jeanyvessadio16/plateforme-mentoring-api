@@ -161,7 +161,9 @@ model User {
   conversations2             Conversation[]            @relation("Conversations2")
   messagesSent               Message[]
   masterclassRegistrations   MasterclassRegistration[]
+  masterclassesCreated       Masterclass[]             @relation("CreatedMasterclasses")
   favoriteOpportunities      OpportunityFavorite[]
+  opportunitiesCreated       Opportunity[]             @relation("CreatedOpportunities")
   notifications              Notification[]
   reportsMade                Report[]                  @relation("ReporterReports")
   reportsReceived            Report[]                  @relation("ReportedUserReports")
@@ -486,6 +488,8 @@ model MessageAttachment {
 
 model Masterclass {
   id              String            @id @default(uuid())
+  createdById     String?
+  createdBy       User?             @relation("CreatedMasterclasses", fields: [createdById], references: [id], onDelete: Cascade)
   titre           String
   intervenant     String
   description     String
@@ -503,6 +507,7 @@ model Masterclass {
 
   @@index([dateSession, statut])
   @@index([categorie])
+  @@index([createdById])
 }
 
 model MasterclassRegistration {
@@ -524,6 +529,8 @@ model MasterclassRegistration {
 
 model Opportunity {
   id              String              @id @default(uuid())
+  createdById     String?
+  createdBy       User?               @relation("CreatedOpportunities", fields: [createdById], references: [id], onDelete: Cascade)
   titre           String
   organisation    String
   categorie       OpportunityCategory
@@ -540,6 +547,7 @@ model Opportunity {
 
   @@index([status, dateExpiration])
   @@index([categorie])
+  @@index([createdById])
 }
 
 model OpportunityFavorite {

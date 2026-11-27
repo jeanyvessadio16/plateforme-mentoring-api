@@ -1,4 +1,9 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../core/database/prisma.service.js';
 import {
@@ -88,6 +93,33 @@ export class OpportunitiesService {
     });
   }
 
+  async findManaged(userId: string, userRole: UserRole) {
+    const where: Prisma.OpportunityWhereInput =
+      userRole === UserRole.ADMIN ? {} : { createdById: userId };
+
+    const data = await this.prisma.opportunity.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+
+    return { data };
+  }
+
+  private assertCanManageOpportunity(
+    opportunity: { createdById?: string | null },
+    actor?: { id: string; role: UserRole },
+  ): void {
+    if (!actor || actor.role === UserRole.ADMIN) {
+      return;
+    }
+    if (!opportunity.createdById || opportunity.createdById !== actor.id) {
+      throw new ForbiddenException(
+        'Vous ne pouvez modifier ou supprimer que les opportunités publiées par votre organisation.',
+      );
+    }
+  }
+
   async addFavorite(opportunityId: string, userId: string) {
     await this.findById(opportunityId);
 
@@ -120,9 +152,10 @@ export class OpportunitiesService {
     return { message: 'Opportunité retirée des favoris.' };
   }
 
-  async create(dto: CreateOpportunityDto) {
+  async create(dto: CreateOpportunityDto, createdById?: string) {
     const created = await this.prisma.opportunity.create({
       data: {
+        createdById: createdById ?? null,
         titre: dto.titre,
         organisation: dto.organisation,
         categorie: dto.categorie,
@@ -168,8 +201,13 @@ export class OpportunitiesService {
     return created;
   }
 
-  async update(id: string, dto: UpdateOpportunityDto) {
-    await this.findById(id);
+  async update(
+    id: string,
+    dto: UpdateOpportunityDto,
+    actor?: { id: string; role: UserRole },
+  ) {
+    const existing = await this.findById(id);
+    this.assertCanManageOpportunity(existing, actor);
 
     return this.prisma.opportunity.update({
       where: { id },
@@ -191,8 +229,9 @@ export class OpportunitiesService {
     });
   }
 
-  async remove(id: string) {
-    await this.findById(id);
+  async remove(id: string, actor?: { id: string; role: UserRole }) {
+    const existing = await this.findById(id);
+    this.assertCanManageOpportunity(existing, actor);
     await this.prisma.opportunity.delete({ where: { id } });
     return { message: 'Opportunité supprimée.' };
   }

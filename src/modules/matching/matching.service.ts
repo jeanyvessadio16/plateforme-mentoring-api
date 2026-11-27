@@ -75,6 +75,9 @@ export class MatchingService {
       where: {
         statutValidation: AccountStatus.ACTIVE,
         isAvailable: true,
+        user: {
+          statutCompte: AccountStatus.ACTIVE,
+        },
       },
       include: {
         user: {
@@ -196,9 +199,18 @@ export class MatchingService {
     userId: string,
     filter?: FilterRecommendationsDto,
   ): Promise<RecommendationResult[]> {
-    // Vérifier si des résultats existent déjà
+    // Vérifier si des résultats existent déjà (uniquement mentors toujours actifs et disponibles)
     const savedResults = await this.prisma.matchingResult.findMany({
-      where: { menteeId: userId },
+      where: {
+        menteeId: userId,
+        mentor: {
+          statutValidation: AccountStatus.ACTIVE,
+          isAvailable: true,
+          user: {
+            statutCompte: AccountStatus.ACTIVE,
+          },
+        },
+      },
       include: {
         mentor: {
           include: {

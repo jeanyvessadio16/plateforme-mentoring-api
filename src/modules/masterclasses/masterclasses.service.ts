@@ -116,6 +116,7 @@ export class MasterclassesService {
       where: { id },
       select: {
         id: true,
+        createdById: true,
         titre: true,
         statut: true,
         lienLive: true,
@@ -129,7 +130,9 @@ export class MasterclassesService {
 
     const canBypassRegistration =
       userRole === UserRole.ADMIN ||
-      (userRole === UserRole.EXPERT && statutCompte === AccountStatus.ACTIVE);
+      (userRole === UserRole.EXPERT &&
+        statutCompte === AccountStatus.ACTIVE &&
+        masterclass.createdById === userId);
 
     if (!canBypassRegistration) {
       const registration = await this.prisma.masterclassRegistration.findUnique({
@@ -144,7 +147,8 @@ export class MasterclassesService {
       }
     }
 
-    return masterclass;
+    const { createdById: _createdById, ...publicAccessData } = masterclass;
+    return publicAccessData;
   }
 
   async register(id: string, userId: string) {
@@ -228,9 +232,40 @@ export class MasterclassesService {
     });
   }
 
-  async create(dto: CreateMasterclassDto) {
+  async findManaged(userId: string, userRole: UserRole) {
+    const where: Prisma.MasterclassWhereInput =
+      userRole === UserRole.ADMIN ? {} : { createdById: userId };
+
+    const data = await this.prisma.masterclass.findMany({
+      where,
+      include: {
+        _count: { select: { registrations: true } },
+      },
+      orderBy: { dateSession: 'asc' },
+      take: 100,
+    });
+
+    return { data };
+  }
+
+  private assertCanManageMasterclass(
+    masterclass: { createdById?: string | null },
+    actor?: { id: string; role: UserRole },
+  ): void {
+    if (!actor || actor.role === UserRole.ADMIN) {
+      return;
+    }
+    if (!masterclass.createdById || masterclass.createdById !== actor.id) {
+      throw new ForbiddenException(
+        'Vous ne pouvez gérer que les masterclasses que vous avez créées.',
+      );
+    }
+  }
+
+  async create(dto: CreateMasterclassDto, createdById?: string) {
     return this.prisma.masterclass.create({
       data: {
+        createdById: createdById ?? null,
         titre: dto.titre,
         intervenant: dto.intervenant,
         description: dto.description,
@@ -245,11 +280,16 @@ export class MasterclassesService {
     });
   }
 
-  async update(id: string, dto: UpdateMasterclassDto) {
+  async update(
+    id: string,
+    dto: UpdateMasterclassDto,
+    actor?: { id: string; role: UserRole },
+  ) {
     const existing = await this.prisma.masterclass.findUnique({ where: { id } });
     if (!existing) {
       throw new NotFoundException('Masterclass introuvable.');
     }
+    this.assertCanManageMasterclass(existing, actor);
 
     return this.prisma.masterclass.update({
       where: { id },
@@ -272,24 +312,29 @@ export class MasterclassesService {
     });
   }
 
-  async remove(id: string) {
+  async remove(id: string, actor?: { id: string; role: UserRole }) {
     const existing = await this.prisma.masterclass.findUnique({ where: { id } });
     if (!existing) {
       throw new NotFoundException('Masterclass introuvable.');
     }
+    this.assertCanManageMasterclass(existing, actor);
 
     await this.prisma.masterclass.delete({ where: { id } });
     return { message: 'Masterclass supprimée.' };
   }
 
-  async listRegistrations(masterclassId: string) {
+  async listRegistrations(
+    masterclassId: string,
+    actor?: { id: string; role: UserRole },
+  ) {
     const existing = await this.prisma.masterclass.findUnique({
       where: { id: masterclassId },
-      select: { id: true },
+      select: { id: true, createdById: true },
     });
     if (!existing) {
       throw new NotFoundException('Masterclass introuvable.');
     }
+    this.assertCanManageMasterclass(existing, actor);
 
     return this.prisma.masterclassRegistration.findMany({
       where: { masterclassId },
@@ -300,7 +345,23 @@ export class MasterclassesService {
     });
   }
 
-  async markAttendance(masterclassId: string, targetUserId: string, attended: boolean) {
+  async markAttendance(
+    masterclassId: string,
+    targetUserId: string,
+    attended: boolean,
+    actor?: { id: string; role: UserRole },
+  ) {
+    if (actor) {
+      const mc = await this.prisma.masterclass.findUnique({
+        where: { id: masterclassId },
+        select: { id: true, createdById: true },
+      });
+      if (!mc) {
+        throw new NotFoundException('Masterclass introuvable.');
+      }
+      this.assertCanManageMasterclass(mc, actor);
+    }
+
     const existing = await this.prisma.masterclassRegistration.findUnique({
       where: {
         masterclassId_userId: { masterclassId, userId: targetUserId },
